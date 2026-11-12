@@ -130,6 +130,13 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: bash flutter/ikram_browser/tool/verify_android_update.sh apks/first/ikram-browser-debug.apk apks/second/ikram-browser-debug.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-update-evidence-${{ github.run_number }}
+          path: generated-artifacts/android-update.png
+          if-no-files-found: ignore
+          retention-days: 1
       # Only advertise/download the newer APK after the update test passes.
       - uses: actions/upload-artifact@v4
         id: upload

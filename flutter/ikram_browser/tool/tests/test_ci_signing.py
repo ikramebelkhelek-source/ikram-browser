@@ -19,6 +19,7 @@ def load(name):
 
 signing = load("configure_ci_signing")
 certificate = load("verify_apk_certificate")
+provisioning = load("provision_ci_signing")
 
 
 class SigningTests(unittest.TestCase):
@@ -103,6 +104,13 @@ class SigningTests(unittest.TestCase):
         self.assertEqual(certificate.fingerprint(text), digest)
         with self.assertRaises(ValueError):
             certificate.fingerprint(text + f"V3.1 Signer: certificate SHA-256 digest: {'b' * 64}\n")
+
+    @patch.object(provisioning, "gh_json")
+    def test_provisioning_never_modifies_an_existing_environment(self, gh):
+        gh.return_value = {"environments": [{"name": "android-signing"}]}
+        with self.assertRaises(ValueError):
+            provisioning.provision("test/repo")
+        gh.assert_called_once_with("repos/test/repo/environments?per_page=100&page=1")
 
 
 if __name__ == "__main__":

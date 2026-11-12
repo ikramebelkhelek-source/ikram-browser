@@ -31,6 +31,16 @@ def gh_json(*args, body=None):
 
 def provision(repo):
     prefix = f"repos/{repo}/environments/android-signing"
+    # This is deliberately a first-time setup tool, not an environment editor.
+    # Do not weaken existing reviewer/branch rules, even when secrets are absent.
+    page = 1
+    while True:
+        environments = gh_json(f"repos/{repo}/environments?per_page=100&page={page}")["environments"]
+        if any(e["name"] == "android-signing" for e in environments):
+            raise ValueError("Signing environment already exists; preserve its identity and protections.")
+        if len(environments) < 100:
+            break
+        page += 1
     # Configure the branch restriction BEFORE storing any key.
     gh_json(prefix, "--method", "PUT", body={
         "deployment_branch_policy": {

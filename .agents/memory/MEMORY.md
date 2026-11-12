@@ -1,1 +1,2 @@
 - [GitHub access fallback](github-access.md) — unavailable connector credentials do not prove standard Git or authenticated GitHub CLI is unavailable.
+- [Android signing identity](android-signing-identity.md) — investigate verifier/report-format changes before assuming a key mismatch; never regenerate the update key to fix a check.

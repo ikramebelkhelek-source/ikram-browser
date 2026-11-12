@@ -159,7 +159,8 @@ python3 tool/provision_ci_signing.py OWNER/REPOSITORY
 The setup tool configures the main-only environment restriction first, generates
 a long-lived key and random password in a private temporary directory, sends the
 values directly to GitHub's encrypted environment secrets through `gh secret set`,
-and removes local signing files. It refuses to overwrite existing signing secrets.
+and removes local signing files. It refuses to modify an existing signing
+environment or overwrite signing secrets.
 No signing value should be printed, pasted into chat, committed, or uploaded as
 an artifact. Do not use shell tracing (`set -x`), dump environment variables, or
 enable verbose Gradle diagnostics with secrets present.
