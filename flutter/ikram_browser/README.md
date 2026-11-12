@@ -189,6 +189,20 @@ For device acceptance, create a named profile, sign in to a disposable test
 website account, install a later successful run over it, then confirm the profile
 and login still exist. Never run the emulator fixture script on a personal device.
 
+Verified on **2026-11-12**:
+
+- [Independent APK builds](https://github.com/ikramebelkhelek-source/ikram-browser/actions/runs/43293675940):
+  both signed-build jobs passed on fresh runners with the protected identity.
+- [Android 35 in-place update test](https://github.com/ikramebelkhelek-source/ikram-browser/actions/runs/43295813025):
+  the exact same APK pair passed replacement installation, unchanged UID,
+  byte-for-byte preferences/WebView data retention, and visible saved profile
+  after relaunch. The test was rerun separately after correcting its Android UID
+  query; this did not rebuild or re-sign either APK.
+
+The temporary rerun workflow was removed after verification. The permanent
+workflow includes the corrected check and retains an emulator screenshot for one
+day. These tests used synthetic data, not a personal device or real website login.
+
 ### Local checks
 
 The dependency-free domain checks can run with the Dart SDK:

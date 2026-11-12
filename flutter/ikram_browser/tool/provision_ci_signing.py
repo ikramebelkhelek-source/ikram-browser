@@ -88,4 +88,4 @@ if __name__ == "__main__":
     try:
         provision(sys.argv[1])
     except (IndexError, ValueError, OSError, subprocess.CalledProcessError):
-        sys.exit("Signing setup failed or secrets already exist. Inspect secret NAMES only; never rotate a key to retry.")
+        sys.exit("Signing setup refused or failed. Preserve existing environment/secrets; inspect names and access only.")
