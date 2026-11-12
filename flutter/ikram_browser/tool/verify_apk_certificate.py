@@ -6,10 +6,20 @@ import sys
 
 
 def fingerprint(text):
-    matches = re.findall(r"^Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]{64})$", text, re.M)
-    if len(matches) != 1:
-        raise ValueError("Expected exactly one APK signer.")
-    return matches[0].lower()
+    # Build Tools 37 labels this "V2 Signer:" instead of "Signer #1".
+    # It may report the same certificate once per signing scheme. Check EVERY
+    # certificate digest, rather than silently ignoring an unfamiliar label.
+    lines = [line.strip() for line in text.splitlines()
+             if "certificate SHA-256 digest:" in line]
+    digests = set()
+    for line in lines:
+        match = re.fullmatch(r".+ certificate SHA-256 digest: ([0-9a-fA-F]{64})", line)
+        if not match:
+            raise ValueError("Malformed APK certificate digest.")
+        digests.add(match[1].lower())
+    if len(digests) != 1:
+        raise ValueError("Expected exactly one distinct APK signing certificate.")
+    return digests.pop()
 
 
 if __name__ == "__main__":

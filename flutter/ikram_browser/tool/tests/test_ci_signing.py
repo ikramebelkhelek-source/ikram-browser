@@ -91,9 +91,18 @@ class SigningTests(unittest.TestCase):
         digest = "a" * 64
         text = f"Signer #1 certificate SHA-256 digest: {digest}\n"
         self.assertEqual(certificate.fingerprint(text), digest)
-        for invalid in ("", text + text, "Signer #1 certificate SHA-256 digest: invalid"):
+        for invalid in ("", text + text.replace(digest, "b" * 64),
+                        "Signer #1 certificate SHA-256 digest: invalid"):
             with self.assertRaises(ValueError):
                 certificate.fingerprint(invalid)
+
+    def test_build_tools_37_scheme_labels(self):
+        digest = "a" * 64
+        text = f"V2 Signer: certificate SHA-256 digest: {digest}\r\n"
+        text += f"V3 Signer: certificate SHA-256 digest: {digest.upper()}\r\n"
+        self.assertEqual(certificate.fingerprint(text), digest)
+        with self.assertRaises(ValueError):
+            certificate.fingerprint(text + f"V3.1 Signer: certificate SHA-256 digest: {'b' * 64}\n")
 
 
 if __name__ == "__main__":
