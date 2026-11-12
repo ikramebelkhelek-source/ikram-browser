@@ -58,6 +58,11 @@ flutter/**/build/
 flutter/**/android/local.properties
 flutter/**/ios/Pods/
 flutter/**/ios/.symlinks/
+**/__pycache__/
+# Never commit Android signing material.
+*.jks
+*.keystore
+**/key.properties
 
 # Replit
 .cache/
