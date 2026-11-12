@@ -81,15 +81,16 @@ jobs:
           set -euo pipefail
           build_tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           mkdir -p build/download
+          cp build/app/outputs/flutter-apk/app-debug.apk build/download/ikram-browser-debug.apk
+          (cd build/download && sha256sum ikram-browser-debug.apk > SHA256SUMS.txt)
           "$build_tools/apksigner" verify --print-certs build/app/outputs/flutter-apk/app-debug.apk \
             > "$RUNNER_TEMP/apk-certificate.txt"
           python3 tool/verify_apk_certificate.py "$RUNNER_TEMP/apk-certificate.txt"
-          cp build/app/outputs/flutter-apk/app-debug.apk build/download/ikram-browser-debug.apk
-          (cd build/download && sha256sum ikram-browser-debug.apk > SHA256SUMS.txt)
       - name: Delete temporary signing material
         if: always()
         run: rm -f "$RUNNER_TEMP/ikram-ci-signing.jks" "$RUNNER_TEMP/apk-certificate.txt"
       - uses: actions/upload-artifact@v4
+        if: always() && hashFiles('flutter/ikram_browser/build/download/ikram-browser-debug.apk') != ''
         with:
           name: signed-apk-${{ matrix.sequence }}-${{ github.run_number }}
           path: flutter/ikram_browser/build/download/

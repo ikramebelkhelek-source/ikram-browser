@@ -18,6 +18,9 @@ if __name__ == "__main__":
         expected = os.environ["ANDROID_SIGNING_CERT_SHA256"].lower()
         if actual != expected:
             raise ValueError("Certificate mismatch.")
-    except (ValueError, OSError, KeyError, IndexError):
+    except ValueError as error:
+        # These are fixed diagnostic strings, never values from the file/secrets.
+        sys.exit(str(error))
+    except (OSError, KeyError, IndexError):
         sys.exit("APK signing certificate verification failed.")
     print("APK matches the protected signing identity.")

@@ -1,1 +1,1 @@
-- [GitHub access fallback](github-access.md) — unavailable connector credentials do not prove standard Git push is unavailable.
+- [GitHub access fallback](github-access.md) — unavailable connector credentials do not prove standard Git or authenticated GitHub CLI is unavailable.
