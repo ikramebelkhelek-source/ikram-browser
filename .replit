@@ -1,4 +1,4 @@
-modules = ["nodejs-24", "dart-3.10"]
+modules = ["nodejs-24", "dart-3.10", "python-base-3.13"]
 
 [deployment]
 router = "application"

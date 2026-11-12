@@ -76,6 +76,35 @@ The WebView itself is not available in the browser-based Replit preview.
 
 ## Validation
 
+### Automatic Android APK builds
+
+The repository's `.github/workflows/android-apk.yml` builds an installable
+**debug APK** using Flutter 3.35.7 and Java 17. It runs when app/workflow files
+are pushed or included in a pull request, and can also be started manually.
+The workflow generates the Android shell in CI if it is absent, adds the main
+Internet permission, checks the Flutter source, runs the domain checks, and
+uploads the APK with a SHA-256 checksum.
+
+Once this repository and workflow have been pushed to GitHub:
+
+1. Open the repository's **Actions** tab.
+2. Select **Build Android APK**. To start manually, choose **Run workflow**.
+   GitHub must have the workflow on the default branch for this manual control.
+3. Open a successful run and click its APK download link in the summary, or find
+   **ikram-browser-debug-…** under **Artifacts**.
+4. Download and unzip the artifact. Install `ikram-browser-debug.apk` on Android;
+   you may need to permit installation from your browser or file manager.
+
+You must be signed in to GitHub to download artifacts, which are kept for
+30 days. No custom signing secrets are required. These are test builds, not
+production-signed releases. Each fresh runner may generate a different debug
+signing key: a subsequent APK may require uninstalling the earlier build first.
+**Uninstalling deletes that app's saved profiles and browsing data.**
+Production distribution requires a stable release signing key and separate
+signing configuration.
+
+### Local checks
+
 The dependency-free domain checks can run with the Dart SDK:
 
 ```sh

@@ -1,0 +1,139 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "flutter/ikram_browser/**"
+      - ".github/workflows/android-apk.yml"
+  pull_request:
+    paths:
+      - "flutter/ikram_browser/**"
+      - ".github/workflows/android-apk.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build downloadable debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: flutter/ikram_browser
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.35.7"
+          channel: stable
+          cache: true
+
+      # The repository currently contains Flutter source only, without the
+      # generated Android platform project. Create it separately so flutter
+      # create cannot replace our pubspec, application source, or tests.
+      - name: Prepare Android platform if missing
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -d android ]; then
+            shell_dir="$(mktemp -d)"
+            flutter create \
+              --no-pub \
+              --platforms=android \
+              --project-name=ikram_browser \
+              --org=com.ikram \
+              "$shell_dir/ikram_browser"
+            cp -R "$shell_dir/ikram_browser/android" ./android
+          fi
+          test -f android/app/src/main/AndroidManifest.xml
+          chmod +x android/gradlew
+
+      - name: Ensure the browser has Internet permission
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          android = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", android)
+          tree = ET.parse(manifest)
+          root = tree.getroot()
+          permission = f"{{{android}}}name"
+          if not any(
+              node.get(permission) == "android.permission.INTERNET"
+              for node in root.findall("uses-permission")
+          ):
+              root.insert(0, ET.Element("uses-permission", {
+                  permission: "android.permission.INTERNET"
+              }))
+          tree.write(manifest, encoding="utf-8", xml_declaration=True)
+          PY
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Check Flutter source
+        run: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+
+      - name: Run domain checks
+        run: dart tool/check_domain.dart
+
+      - name: Build installable test APK
+        run: flutter build apk --debug --no-pub
+
+      - name: Prepare APK and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/download
+          cp build/app/outputs/flutter-apk/app-debug.apk \
+            build/download/ikram-browser-debug.apk
+          cd build/download
+          sha256sum ikram-browser-debug.apk > SHA256SUMS.txt
+
+      - name: Upload downloadable APK
+        id: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ikram-browser-debug-${{ github.run_number }}
+          path: |
+            flutter/ikram_browser/build/download/ikram-browser-debug.apk
+            flutter/ikram_browser/build/download/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Show download instructions
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+        run: |
+          {
+            echo "## Android APK ready"
+            echo
+            echo "[Download the APK artifact]($ARTIFACT_URL)"
+            echo
+            echo "Unzip the download to find ikram-browser-debug.apk and SHA256SUMS.txt."
+            echo
+            echo "This is a debug-signed test build, not a production or Play Store release."
+            echo "Artifacts are retained for 30 days. Sign in to GitHub to download."
+            echo "Each fresh runner may use a different debug key; updating an existing installation may require uninstalling it first, which removes its saved data."
+          } >> "$GITHUB_STEP_SUMMARY"
