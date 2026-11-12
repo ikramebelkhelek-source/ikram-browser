@@ -50,6 +50,15 @@ Thumbs.db
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
+# Flutter tooling and generated builds
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+flutter/**/build/
+flutter/**/android/local.properties
+flutter/**/ios/Pods/
+flutter/**/ios/.symlinks/
+
 # Replit
 .cache/
 .local/

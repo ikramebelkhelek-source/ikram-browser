@@ -1,8 +1,18 @@
-# [Project name]
+# Ikram Flutter browser
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Corrected Flutter source for the uploaded Arabic browser, maintained in
+`flutter/ikram_browser`. Preserve Flutter; this request is to fix the supplied
+code, not convert it into a web or Expo app.
 
 ## Run & Operate
+
+- `dart flutter/ikram_browser/tool/check_domain.dart` — dependency-free domain checks
+- `dart analyze flutter/ikram_browser/lib/domain.dart flutter/ikram_browser/tool/check_domain.dart` — analyze the pure Dart logic
+- Full Flutter commands and native platform requirements are in `flutter/ikram_browser/README.md`.
+- Flutter is not installed here. The Dart SDK can validate pure logic and parse
+  source, but cannot verify the Flutter widgets or native WebView integration.
+- No new runnable preview was created for this source-only repair.
+- The pnpm packages below are the supplied template, not the Flutter app.
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
 - `pnpm run typecheck` — full typecheck across all packages
@@ -26,7 +36,12 @@ _Populate as you build — short repo map plus pointers to the source-of-truth f
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Do not approximate native browser privacy with an iframe or server-side proxy.
+  The repair keeps the original Flutter platform instead.
+- Do not claim isolated browser profiles: the supplied plugin's storage is shared.
+  Actual persistent isolation would require a separate native architecture.
+- Do not add incognito as a substitute for isolation: Android's plugin implementation
+  clears all WebView cookies when incognito is enabled.
 
 ## Product
 
