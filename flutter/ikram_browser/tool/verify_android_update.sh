@@ -10,6 +10,8 @@ if adb shell pm path "$package" | grep -q '^package:'; then
   echo "Refusing to overwrite an existing emulator installation." >&2
   exit 1
 fi
+mkdir -p generated-artifacts
+trap 'echo "Update verification failed at line $LINENO" >&2; adb exec-out screencap -p > generated-artifacts/android-update.png || true' ERR
 tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
@@ -50,9 +52,9 @@ printf 'webview-upgrade-fixture' | adb shell run-as "$package" tee app_webview/D
 # Snapshot the WHOLE native WebView directory, including any databases created
 # on launch; no app process runs between this snapshot and the post-update one.
 adb exec-out run-as "$package" tar -cf - shared_prefs app_webview > "$scratch/before.tar"
-uid_before="$(adb shell dumpsys package "$package" | grep -m1 'userId=' | tr -d '\r')"
+uid_before="$(adb shell run-as "$package" id -u | tr -d '\r')"
 adb install -r "$second"
-uid_after="$(adb shell dumpsys package "$package" | grep -m1 'userId=' | tr -d '\r')"
+uid_after="$(adb shell run-as "$package" id -u | tr -d '\r')"
 test "$uid_before" = "$uid_after"
 adb exec-out run-as "$package" tar -cf - shared_prefs app_webview > "$scratch/after.tar"
 python3 - "$scratch" <<'PY'
@@ -71,6 +73,7 @@ adb shell am start -W -n "$package/.MainActivity" >/dev/null
 sleep 10
 adb shell uiautomator dump /sdcard/upgrade-ui.xml >/dev/null
 adb pull /sdcard/upgrade-ui.xml "$scratch/ui.xml" >/dev/null
+adb exec-out screencap -p > generated-artifacts/android-update.png
 grep -q 'Saved before update' "$scratch/ui.xml"
 adb shell run-as "$package" cat app_webview/Default/upgrade-sentinel | grep -q 'webview-upgrade-fixture'
 echo "PASS: Same signing certificate, newer version, in-place install, retained profile and native WebView data."

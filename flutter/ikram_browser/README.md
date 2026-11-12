@@ -159,7 +159,8 @@ python3 tool/provision_ci_signing.py OWNER/REPOSITORY
 The setup tool configures the main-only environment restriction first, generates
 a long-lived key and random password in a private temporary directory, sends the
 values directly to GitHub's encrypted environment secrets through `gh secret set`,
-and removes local signing files. It refuses to overwrite existing signing secrets.
+and removes local signing files. It refuses to modify an existing signing
+environment or overwrite signing secrets.
 No signing value should be printed, pasted into chat, committed, or uploaded as
 an artifact. Do not use shell tracing (`set -x`), dump environment variables, or
 enable verbose Gradle diagnostics with secrets present.
@@ -187,6 +188,20 @@ accounts. It does not prove any particular website will keep a session alive.
 For device acceptance, create a named profile, sign in to a disposable test
 website account, install a later successful run over it, then confirm the profile
 and login still exist. Never run the emulator fixture script on a personal device.
+
+Verified on **2026-11-12**:
+
+- [Independent APK builds](https://github.com/ikramebelkhelek-source/ikram-browser/actions/runs/43293675940):
+  both signed-build jobs passed on fresh runners with the protected identity.
+- [Android 35 in-place update test](https://github.com/ikramebelkhelek-source/ikram-browser/actions/runs/43295813025):
+  the exact same APK pair passed replacement installation, unchanged UID,
+  byte-for-byte preferences/WebView data retention, and visible saved profile
+  after relaunch. The test was rerun separately after correcting its Android UID
+  query; this did not rebuild or re-sign either APK.
+
+The temporary rerun workflow was removed after verification. The permanent
+workflow includes the corrected check and retains an emulator screenshot for one
+day. These tests used synthetic data, not a personal device or real website login.
 
 ### Local checks
 
