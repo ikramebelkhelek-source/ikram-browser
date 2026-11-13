@@ -1,0 +1,43 @@
+name: Prepare Android
+description: Install pinned tooling and generate the Android shell without replacing Flutter source.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "17"
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: "3.35.7"
+        channel: stable
+        cache: true
+    - shell: bash
+      working-directory: flutter/ikram_browser
+      run: |
+        set -euo pipefail
+        if [ ! -d android ]; then
+          shell_dir="$(mktemp -d)"
+          trap 'rm -rf "$shell_dir"' EXIT
+          flutter create --no-pub --platforms=android \
+            --project-name=ikram_browser --org=com.ikram "$shell_dir/ikram_browser"
+          cp -R "$shell_dir/ikram_browser/android" ./android
+        fi
+        chmod +x android/gradlew
+        python3 - <<'PY'
+        from pathlib import Path
+        import xml.etree.ElementTree as ET
+        manifest = Path("android/app/src/main/AndroidManifest.xml")
+        android = "http://schemas.android.com/apk/res/android"
+        ET.register_namespace("android", android)
+        tree = ET.parse(manifest)
+        root = tree.getroot()
+        permission = f"{{{android}}}name"
+        if not any(node.get(permission) == "android.permission.INTERNET"
+                   for node in root.findall("uses-permission")):
+            root.insert(0, ET.Element("uses-permission", {
+                permission: "android.permission.INTERNET"
+            }))
+        tree.write(manifest, encoding="utf-8", xml_declaration=True)
+        PY
+        flutter pub get
