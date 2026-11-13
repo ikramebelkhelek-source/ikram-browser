@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Disposable Android update check</title>
+<h1>Android update storage check</h1>
+<p id="result">Checking synthetic data…</p>
+<script>
+// Served by the probe at https://update-test.invalid, never a personal account.
+// Only /seed writes. /verify MUST NOT repair lost data.
+const token = __TOKEN__;
+if (location.pathname === "/seed") {
+  document.cookie = `update_js=${token}; Max-Age=86400; Secure; SameSite=Lax; Path=/`;
+  localStorage.setItem("android_update_token", token);
+}
+const cookie = document.cookie.split("; ").includes(`update_js=${token}`);
+const storage = localStorage.getItem("android_update_token") === token;
+window.updateResult = {
+  cookie, storage, secure: window.isSecureContext,
+  origin: location.origin, path: location.pathname
+};
+document.getElementById("result").textContent =
+  cookie && storage && isSecureContext ? "UPDATE STORAGE PASS" : "UPDATE STORAGE FAIL";
+</script>
+</html>

@@ -40,4 +40,7 @@ runs:
             }))
         tree.write(manifest, encoding="utf-8", xml_declaration=True)
         PY
+        # Enable the native WebView inspection interface only in debuggable
+        # builds. The update probe uses CDP, including on old System WebViews.
+        python3 tool/configure_update_probe.py
         flutter pub get

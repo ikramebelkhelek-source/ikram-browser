@@ -11,6 +11,26 @@ env = { "CI" = "true" }
 [workflows]
 runButton = "Project"
 
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "android-update-tools"
+
+[[workflows.workflow]]
+name = "android-update-tools"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 -m unittest discover -s flutter/ikram_browser/tool/tests -v && node --test flutter/ikram_browser/tool/tests/*.test.mjs && node --check flutter/ikram_browser/tool/probe_webview.mjs && bash -n flutter/ikram_browser/tool/verify_android_update.sh && dart flutter/ikram_browser/tool/check_domain.dart && git diff --check"
+
+[workflows.workflow.metadata]
+isValidation = true
+
 [agent]
 stack = "PNPM_WORKSPACE"
 expertMode = true

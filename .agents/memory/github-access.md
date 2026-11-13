@@ -19,3 +19,13 @@ credential helpers. Preserve unrelated remote history and source; use a
 non-force push. Also try an ordinary authenticated `gh api` request when GitHub API
 access is needed; never inspect its token or credential storage. Connector access,
 Git transport, and GitHub CLI authentication are distinct.
+
+For Actions artifacts, `gh run download` can report HTTP 401 while downloading
+the same ZIP with `gh api repos/OWNER/REPO/actions/artifacts/ARTIFACT_ID/zip`
+succeeds. Redirect binary output directly to an ignored generated-output file.
+
+**Why:** The CLI's artifact-download path and its API request path behaved
+differently in this workspace; the first failure did not mean access was missing.
+
+**How to apply:** Try the API path before requesting reauthorization. Do not
+inspect credentials or print redirect/signed download URLs.
