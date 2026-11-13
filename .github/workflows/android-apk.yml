@@ -97,24 +97,68 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  verify-update:
-    name: Verify update preserves installed data
-    needs: build
+  build-test:
+    name: Disposable-key APKs (no protected secrets)
+    needs: checks
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'push' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: flutter/ikram_browser
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare-android
+      - name: Build an update pair using only the disposable runner debug key
+        run: |
+          set -euo pipefail
+          for sequence in 1 2; do
+            flutter build apk --debug --no-pub --build-number="$sequence"
+            mkdir -p "build/test-$sequence"
+            cp build/app/outputs/flutter-apk/app-debug.apk "build/test-$sequence/ikram-browser-debug.apk"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-apk-1-${{ github.run_number }}
+          path: flutter/ikram_browser/build/test-1/
+          retention-days: 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-apk-2-${{ github.run_number }}
+          path: flutter/ikram_browser/build/test-2/
+          retention-days: 1
+
+  verify-update:
+    name: Verify update on Android API ${{ matrix.api }}
+    needs: [build, build-test]
+    if: >-
+      always() && !cancelled() &&
+      (needs.build.result == 'success' || needs.build-test.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        # Flutter 3.35.7's generated Android shell has minSdk 24.
+        api: [24, 28, 35]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
       - uses: actions/download-artifact@v4
         with:
-          name: signed-apk-1-${{ github.run_number }}
+          name: ${{ needs.build.result == 'success' && 'signed' || 'test' }}-apk-1-${{ github.run_number }}
           path: apks/first
       - uses: actions/download-artifact@v4
         with:
-          name: signed-apk-2-${{ github.run_number }}
+          name: ${{ needs.build.result == 'success' && 'signed' || 'test' }}-apk-2-${{ github.run_number }}
           path: apks/second
       - name: Enable emulator acceleration
         run: |
@@ -125,19 +169,29 @@ jobs:
       - name: Compare certificates and update on Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 35
+          api-level: ${{ matrix.api }}
           arch: x86_64
+          target: google_apis
           profile: pixel_2
           disable-animations: true
           script: bash flutter/ikram_browser/tool/verify_android_update.sh apks/first/ikram-browser-debug.apk apks/second/ikram-browser-debug.apk
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: android-update-evidence-${{ github.run_number }}
-          path: generated-artifacts/android-update.png
+          name: android-update-evidence-api-${{ matrix.api }}-${{ github.run_number }}
+          path: generated-artifacts/android-update/
           if-no-files-found: ignore
           retention-days: 1
-      # Only advertise/download the newer APK after the update test passes.
+
+  publish-tested-apk:
+    name: Offer APK only after every supported-version check passes
+    needs: [build, verify-update]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-apk-2-${{ github.run_number }}
+          path: apks/second
       - uses: actions/upload-artifact@v4
         id: upload
         with:
@@ -152,7 +206,8 @@ jobs:
           {
             echo "## Android update verified"
             echo "[Download the tested APK]($ARTIFACT_URL)"
-            echo "Two fresh runners used the same certificate; Android accepted an in-place update and retained the test app data."
+            echo "Two fresh runners used the same certificate. APIs 24, 28 and 35 accepted in-place updates, displayed the saved profiles, and retained real HTTPS-origin WebView cookies/localStorage."
+            echo "A differently signed update was rejected without changing installed data on each API."
             echo "Unzip and install ikram-browser-debug.apk OVER the existing app. Do not uninstall or clear storage."
             echo "Legacy APKs with a different signing certificate cannot be updated by this key. Stop if Android rejects the update."
             echo "This remains a debuggable test build, not an app-store release. Artifacts are kept for 30 days."

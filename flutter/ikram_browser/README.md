@@ -62,8 +62,9 @@ flutter analyze
 flutter run
 ```
 
-Review platform prerequisites in the plugin documentation. Android requires
-minSdk 19+, compileSdk 34+ and an Internet permission in the **main** manifest
+Review platform prerequisites in the plugin documentation. The pinned Flutter
+3.35.7 Android shell requires **minSdk 24** (Android 7.0), even though the WebView
+plugin alone supports older devices. It also requires an Internet permission in the **main** manifest
 (not just the debug manifest):
 
 ```xml
@@ -81,13 +82,20 @@ The WebView itself is not available in the browser-based Replit preview.
 The repository's `.github/workflows/android-apk.yml` builds an installable
 **debuggable test APK with a persistent CI signing key**, using Flutter 3.35.7
 and Java 17. Pull requests run source/domain/signing-tool checks **without
-signing secrets** and do not produce downloadable APKs. Default-branch pushes
+signing secrets** and build a disposable-key APK pair only for automated testing,
+not the recommended download. Non-default-branch pushes do the same. Default-branch pushes
 and manual runs on an environment-approved branch also build two APKs on
 separate fresh runners. Both must match the protected signing certificate.
-An Android 35 emulator then installs the first APK, seeds a saved profile and
-native WebView test data, and installs the second with `adb install -r`.
-It checks the unchanged app UID, byte-for-byte preferences/WebView files, and
-the saved profile visible after relaunch. Only after this succeeds is the newer
+Disposable Android **API 24, 28 and 35** emulators then install the first APK,
+seed two saved profiles, and open a controlled HTTPS-origin fixture inside the
+actual app WebView. It creates persistent Secure JavaScript and HttpOnly cookies
+and actual localStorage through browser APIs. A cold restart verifies they
+reached disk before the update. Each emulator rejects a copy signed with a
+new disposable certificate, then installs the correct second APK with
+`adb install -r`. Checks include unchanged UID, byte-for-byte preferences/WebView
+files after both rejected and accepted updates, visible profiles after relaunch,
+and read-only verification of the original cookies/localStorage. Only after
+**all three APIs pass** is the newer protected-key
 APK uploaded as the recommended download, with a SHA-256 file checksum.
 
 Once this repository and workflow have been pushed to GitHub:
@@ -181,13 +189,33 @@ an always-run cleanup step, and only APKs/checksums are uploaded.
 
 ### What the update test proves
 
-The automated test verifies a real package-manager update between separately
-built APKs, profile readability in the relaunched app, and retention of native
-WebView files. It uses synthetic data on a disposable emulator, not personal
-accounts. It does not prove any particular website will keep a session alive.
-For device acceptance, create a named profile, sign in to a disposable test
-website account, install a later successful run over it, then confirm the profile
-and login still exist. Never run the emulator fixture script on a personal device.
+The automated test verifies a real package-manager update, profile readability
+in the relaunched app, and persistence of actual native WebView cookies and
+localStorage as well as its files. The protected-key APK pair is built on
+separate runners; PRs use one runner's disposable debug key without protected
+secrets. The script refuses non-emulators and pre-existing installations.
+Never run it on a personal device or use personal accounts.
+
+`tool/update_test_page.html` is a controlled, repository-owned page supplied to
+the real WebView at `https://update-test.invalid` through its DevTools request
+interception interface. The reserved domain is never contacted; no public
+hosting, real accounts, custom CA, or TLS error bypass is used. This tests
+HTTPS-origin storage (including Secure/HttpOnly cookies), **not TLS transport,
+server session expiry, or any particular website's login policy**.
+The post-restart and post-update pages only read: they cannot recreate lost
+cookies or localStorage. A separate negative control re-signs only a temporary
+APK copy; it never changes the protected identity.
+
+Native WebView inspection is enabled explicitly only when Android marks the
+APK debuggable, including older System WebViews that do not auto-enable it.
+It is not enabled for release builds. These APKs are already debuggable test
+builds, not suitable for personal credentials.
+
+Each API uploads separate one-day evidence: provider/API details, profile UI
+dumps, fixture screenshots, storage probe results, and accepted/rejected install
+output. Failure evidence includes a screenshot and recent emulator logs.
+The older single-API verification below is historical; only a successful run
+of the expanded workflow confirms the new matrix.
 
 Verified on **2026-11-12**:
 
