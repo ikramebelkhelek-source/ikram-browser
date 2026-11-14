@@ -24,12 +24,12 @@ args = "android-update-tools"
 name = "android-update-tools"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "python3 -m unittest discover -s flutter/ikram_browser/tool/tests -v && node --test flutter/ikram_browser/tool/tests/*.test.mjs && node --check flutter/ikram_browser/tool/probe_webview.mjs && bash -n flutter/ikram_browser/tool/verify_android_update.sh && dart flutter/ikram_browser/tool/check_domain.dart && git diff --check"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 -m unittest discover -s flutter/ikram_browser/tool/tests -v && node --test flutter/ikram_browser/tool/tests/*.test.mjs && node --check flutter/ikram_browser/tool/probe_webview.mjs && bash -c 'for script in flutter/ikram_browser/tool/*.sh; do bash -n \"$script\" || exit; done' && dart flutter/ikram_browser/tool/check_domain.dart && git diff --check"
 
 [agent]
 stack = "PNPM_WORKSPACE"

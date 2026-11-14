@@ -249,6 +249,51 @@ separate runners; PRs use one runner's disposable debug key without protected
 secrets. The script refuses non-emulators and pre-existing installations.
 Never run it on a personal device or use personal accounts.
 
+#### Separate System WebView version-change scenario
+
+The `verify-webview-update` job is separate from the unchanged API 24/28/35
+app-update matrix. It builds and downloads **only disposable-key APKs**, on
+all workflow events; it never enters the protected signing environment.
+Two fresh, Google-account-free AOSP emulators are used:
+
+1. An API 29 x86_64 **donor** supplies its standalone `com.android.webview`
+   APK directly from Google's Android SDK image, not a third-party APK mirror.
+2. An API 28 x86_64 **test** emulator first checks that APK's signature
+   integrity, package, min/target SDK and native ABI. The installed app creates
+   synthetic persistent Secure JavaScript and HttpOnly cookies and localStorage
+   with the existing HTTPS-origin probe, and reads them after a cold start.
+3. With the app stopped, `adb install -r` and Android's normal WebView selection
+   command request the donor provider. The test requires Android's active
+   provider to match the candidate and have a **different version**.
+4. The original token is read without reseeding immediately after the provider
+   change, then after the app update, and again after another cold start.
+   The existing UID/profile/file and wrong-signature controls still run.
+
+`provider-result.json` records the original, candidate and activated provider
+versions, candidate SHA-256, stage and outcome. Evidence also includes both
+SDK image fingerprints, provider diagnostics, public certificate metadata,
+install/selection output and the probe results/screenshots. The provider APK
+itself is not uploaded. No root, remount, signature bypass, downgrade flag,
+uninstall, data clearing, personal account or production device is used.
+
+SDK image revisions can change independently. Missing/split providers,
+incompatible SDK/ABI, known package/signature rejection, unchanged versions
+or Android declining the requested provider are explicitly **UNSUPPORTED**
+(exit 78 internally). CI summarizes this as **not tested**, never as a pass or
+data-loss failure. Other installation/transport errors fail the job. After
+successful provider activation, lost storage fails as **data-loss**; launch or
+protocol errors fail as test errors, not unsupported combinations. Failure
+before the initial persistent fixture is proven is a fixture failure.
+An incomplete run cannot report success. This separate lane's summary does
+not broaden the tested-download claim: the original matrix and historical
+release checks retain their existing release gates.
+
+Run the shell tools only through this fresh-emulator workflow. Local tests
+exercise compatibility classification, the real probe CLI with simulated CDP
+responses, safety guards and read-only failure behavior without an emulator.
+Real provider migration requires the GitHub-hosted Android emulator run; local
+tooling results alone do not prove device storage retention.
+
 #### Retained earlier-release baseline
 
 `tool/android-update-baseline.json` pins the original main-branch versionCode
@@ -295,7 +340,7 @@ Local tooling checks (no Android SDK or emulator required):
 ```sh
 python3 -m unittest discover -s flutter/ikram_browser/tool/tests -v
 node --test flutter/ikram_browser/tool/tests/*.test.mjs
-bash -n flutter/ikram_browser/tool/{verify_android_update,retain_android_baseline}.sh
+for script in flutter/ikram_browser/tool/*.sh; do bash -n "$script" || exit; done
 ```
 
 `tool/update_test_page.html` is a controlled, repository-owned page supplied to

@@ -19,6 +19,10 @@ const pending = new Map();
 let sequence = 0;
 let failure;
 let legacyInterception = false;
+class StorageLossError extends Error {}
+function retained(condition, message) {
+  if (!condition) throw new StorageLossError(message);
+}
 const deadline = setTimeout(() => {
   console.error("Timed out checking WebView storage");
   process.exit(1);
@@ -102,22 +106,28 @@ try {
   assert(result?.secure, "Fixture is not a secure HTTPS context");
   assert.equal(result.origin, origin);
   assert.equal(result.path, `/${phase}`);
-  assert(result.cookie, "Real JavaScript cookie was lost");
-  assert(result.storage, "Real localStorage was lost");
+  retained(result.cookie, "Real JavaScript cookie was lost");
+  retained(result.storage, "Real localStorage was lost");
   const { cookies } = await send("Network.getCookies", { urls: [`${origin}/`] });
   for (const name of ["update_js", "update_http"]) {
     const cookie = cookies.find(c => c.name === name);
-    assert(cookie && cookie.value === token && cookie.secure && cookie.expires > 0,
+    retained(cookie && cookie.value === token && cookie.secure && cookie.expires > 0,
       `Persistent Secure cookie ${name} missing`);
-    if (name === "update_http") assert(cookie.httpOnly, "HttpOnly flag lost");
+    if (name === "update_http") retained(cookie.httpOnly, "HttpOnly flag lost");
   }
   // Wait for a composed frame before ADB takes its evidence screenshot.
   await send("Runtime.evaluate", {
     expression: "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(true))))",
     awaitPromise: true,
   });
-  writeFileSync(evidence, JSON.stringify({ phase, result, cookies }, null, 2));
+  writeFileSync(evidence, JSON.stringify({ status: "passed", phase, result, cookies }, null, 2));
   console.log(`PASS: ${phase}: HTTPS-origin WebView cookies and localStorage`);
+} catch (error) {
+  const status = error instanceof StorageLossError ? "data-loss" : "probe-failure";
+  writeFileSync(evidence, JSON.stringify({ status, phase, error: error.message }, null, 2));
+  console.error(`${status}: ${error.message}`);
+  // Keep missing storage distinct from an unsupported provider or CDP failure.
+  process.exitCode = error instanceof StorageLossError ? 3 : 1;
 } finally {
   clearTimeout(deadline);
   ws.close();
