@@ -86,9 +86,9 @@ class Device:
                 continue
             matches = 0
             for node in root.iter("node"):
-                if ((editable and node.get("class") == "android.widget.EditText")
-                    or (label is not None and label in labels(node))
-                    or (resource and node.get("resource-id", "").endswith(resource))):
+                if ((not editable or node.get("class") == "android.widget.EditText")
+                    and (label is None or label in labels(node))
+                    and (resource is None or node.get("resource-id", "").endswith(resource))):
                     bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",
                                           node.get("bounds", ""))
                     if bounds:
@@ -110,8 +110,13 @@ class Device:
             time.sleep(.4)
 
     def tap(self, label=None, **options):
-        node, point = self.find(label, **options)
-        assert node.get("enabled") != "false", f"Disabled control: {label}"
+        deadline = time.monotonic() + 45
+        while True:
+            node, point = self.find(label, **options)
+            if node.get("enabled") != "false":
+                break
+            assert time.monotonic() < deadline, f"Disabled control: {label}"
+            time.sleep(.4)
         self.shell("input", "tap", *map(str, point))
         time.sleep(.4)
 
@@ -143,7 +148,7 @@ class Device:
         self.find("COPIED")
         self.launch()
 
-    def paste(self, *, replace=False, field=0):
+    def paste(self, *, replace=False, field=0, expected=None):
         # Flutter's Android semantics can omit InputDecoration labels/hints.
         # Locate visible native editable nodes rather than assuming hint labels.
         self.tap(editable=True, index=field)
@@ -153,6 +158,9 @@ class Device:
         # return success without invoking any Flutter editing action.
         self.shell("input", "keycombination", "113", "50")  # Ctrl+V, real clipboard
         time.sleep(.5)
+        if expected is not None:
+            node, _ = self.find(editable=True, index=field)
+            assert node.get("text") == expected, "Native text field did not receive clipboard text"
         # Hide the IME without dismissing the Flutter dialog.
         if "mInputShown=true" in self.shell("dumpsys", "input_method"):
             self.back()
@@ -196,7 +204,9 @@ class Device:
         # AOSP DocumentsUI, fixed English SYSTEM locale; Flutter remains Arabic.
         # Navigate explicitly rather than trusting the provider's recent folder.
         self.tap("Show roots", timeout=10)
-        self.tap("Downloads")
+        # The open drawer leaves its underlying toolbar/breadcrumb semantics
+        # visible too. Select the root row, not a background "Downloads" label.
+        self.tap("Downloads", resource="/title")
 
     def save_document(self, name):
         self.downloads()
@@ -336,7 +346,7 @@ def destination(device, exchange):
     device.tap("إلغاء")
     device.clipboard('{"malformed":')
     device.tap(IMPORT)
-    device.paste()
+    device.paste(expected='{"malformed":')
     device.preview(allowed=False)
     device.capture("malformed-rtl")
     device.tap("إلغاء")

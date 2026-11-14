@@ -104,6 +104,15 @@ class BackupTransferTests(unittest.TestCase):
         self.assertEqual(device.find(editable=True, index=1)[1], (155, 120))
         self.assertEqual(device.find("تأكيد الاستيراد")[0].get("enabled"), "false")
 
+    def test_document_root_selector_excludes_background_breadcrumb(self):
+        device = self.harness.Device(Path("."))
+        device.dump = lambda: ET.fromstring(
+            '<hierarchy><node text="Downloads" resource-id="docs:id/breadcrumb_text" '
+            'bounds="[0,0][100,50]"/><node text="Downloads" resource-id="android:id/title" '
+            'bounds="[0,200][100,250]"/><node text="file.json" resource-id="android:id/title" '
+            'bounds="[0,300][100,350]"/></hierarchy>')
+        self.assertEqual(device.find("Downloads", resource="/title")[1], (50, 225))
+
     def test_transient_empty_accessibility_tree_is_retried(self):
         device = self.harness.Device(Path("."))
         attempts = iter([
