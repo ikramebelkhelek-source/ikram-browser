@@ -438,6 +438,26 @@ day. These tests used synthetic data, not a personal device or real website logi
 
 ### Native configuration transfer between two phones
 
+**Verification status — 2026-11-14: not yet certified end to end.**
+The harness and CI lane below are implemented, but no complete source/destination
+pair has passed. Earlier source runs passed clipboard/editor save/reopen, direct
+document export, byte-for-byte configuration comparison and original WebView
+cookie/localStorage retention. Destination runs reached cancellation, malformed
+input, default-ID conflict, valid-preview cancellation and file preview at 320dp.
+Successful destination confirmation, repeat rejection and final cold-start
+comparison/session verification still need a completed native run. Local test
+success must not be reported as confirmation of these remaining native steps.
+
+The latest [native attempt](https://github.com/ikramebelkhelek-source/ikram-browser/actions/runs/43621359565)
+stopped when Android's accessibility dump produced no XML during file-picker
+navigation; earlier attempts also exposed emulator disconnects. The driver now
+uses state-based drawer checks, keyboard dismissal and on-device diagnostics,
+and phones run on separate machines, but the shell-driven UI automation remains
+unreliable. Prefer stabilizing/replacing that driver before further full retries.
+There is also a small-screen usability limitation: with the native keyboard open
+at 320dp, the import dialog can hide its content area. The harness dismisses the
+keyboard before inspecting the pasted text or preview.
+
 `.github/workflows/android-backup-transfer.yml` runs a separate Android 35 lane
 using only disposable debug keys, never protected signing keys. It does **not**
 update an APK or change the WebView provider. It builds an independent synthetic
