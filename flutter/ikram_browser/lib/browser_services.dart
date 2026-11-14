@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 
 import 'domain.dart';
@@ -58,20 +59,38 @@ class BrowserNetwork {
   }
 }
 
-/// Explicitly app-wide, never invoked by profile deletion.
-Future<void> clearSharedBrowsingData() async {
+class CleanupReport {
+  final bool complete;
+  const CleanupReport(this.complete);
+
+  String get message => complete
+      ? 'تم مسح بيانات المواقع المحلية. بقيت البروفايلات وإعدادات البروكسي.'
+      : 'تم مسح الكوكيز والكاش وتخزين الويب الأساسي. حدّث Android System '
+          'WebView لإتاحة المسح الشامل لقواعد بيانات المواقع وبيانات التتبع.';
+}
+
+/// Explicitly app-wide, never invoked by profile deletion. Caller must first
+/// stop and dispose all WebViews (including country lookups).
+Future<CleanupReport> clearSharedBrowsingData() async {
   if (!isSupportedMobile) {
     throw UnsupportedError('مسح بيانات المتصفح متاح على Android وiOS فقط.');
+  }
+  if (isAndroid) {
+    const channel = MethodChannel('ikram_safe/privacy');
+    final result = await channel
+        .invokeMapMethod<String, dynamic>('clearAll')
+        .timeout(const Duration(seconds: 45));
+    if (result == null || result['complete'] is! bool) {
+      throw StateError('تعذّر تأكيد اكتمال المسح.');
+    }
+    return CleanupReport(result['complete'] as bool);
   }
   await CookieManager.instance().deleteAllCookies();
   await InAppWebViewController.clearAllCache();
   final storage = WebStorageManager.instance();
-  if (isAndroid) {
-    await storage.deleteAllData();
-  } else {
-    await storage.removeDataModifiedSince(
-      dataTypes: WebsiteDataType.ALL,
-      date: DateTime.fromMillisecondsSinceEpoch(0),
-    );
-  }
+  await storage.removeDataModifiedSince(
+    dataTypes: WebsiteDataType.ALL,
+    date: DateTime.fromMillisecondsSinceEpoch(0),
+  );
+  return const CleanupReport(true);
 }

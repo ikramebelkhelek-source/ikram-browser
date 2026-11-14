@@ -54,6 +54,9 @@ class UpdateProbeTests(unittest.TestCase):
         self.assertEqual(center(
             '<hierarchy><node content-desc="Saved before update&#10;System network" '
             'bounds="[10,80][300,160]"/></hierarchy>', "Saved before update"), (155, 120))
+        self.assertEqual(center(
+            '<hierarchy><node class="android.widget.EditText" text="بروفايل 1" '
+            'bounds="[10,80][300,160]"/></hierarchy>'), (155, 120))
 
     def test_verification_page_never_reseeds_lost_storage(self):
         page = (TOOL / "update_test_page.html").read_text()

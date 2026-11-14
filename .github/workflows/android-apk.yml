@@ -34,7 +34,19 @@ jobs:
           flutter test
           python3 -m unittest discover -s tool/tests -v
           node --test tool/tests/*.test.mjs
+          for script in tool/*.sh; do bash -n "$script" || exit; done
         working-directory: flutter/ikram_browser
+      - name: Check Android backup document access (API 24 and 35 runtimes)
+        run: ./gradlew :profile_backup_documents:testDebugUnitTest
+        working-directory: flutter/ikram_browser/android
+      - name: Retain native backup check results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-document-checks
+          path: flutter/ikram_browser/build/profile_backup_documents/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 1
 
   build:
     name: Signed APK ${{ matrix.sequence }}
@@ -99,12 +111,35 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  retain-baseline:
+    name: Retain the original historical APK (no signing secrets)
+    needs: checks
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+    # Only this trusted maintenance job may upload CI fixture assets. It never
+    # enters the signing environment and never handles the permanent key.
+    permissions:
+      contents: write
+      actions: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Preserve or verify the pinned original binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash flutter/ikram_browser/tool/retain_android_baseline.sh
+
   build-test:
     name: Disposable-key APKs (no protected secrets)
     needs: checks
-    if: >-
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'push' && github.ref != format('refs/heads/{0}', github.event.repository.default_branch))
+    # Also built on trusted runs: the separate provider-change lane never uses
+    # protected-key APKs or enters the signing environment.
     runs-on: ubuntu-latest
     timeout-minutes: 35
     defaults:
@@ -185,12 +220,72 @@ jobs:
           if-no-files-found: ignore
           retention-days: 1
 
+  verify-webview-update:
+    name: Verify data across a System WebView change (disposable keys only)
+    needs: build-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-apk-1-${{ github.run_number }}
+          path: apks/first
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-apk-2-${{ github.run_number }}
+          path: apks/second
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # Get a standalone x86_64 provider from Google's SDK system image rather
+      # than an APK mirror. This donor has no app data or accounts.
+      - name: Collect the API 29 AOSP provider on a separate disposable emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 29
+          arch: x86_64
+          target: default
+          avd-name: webview-donor
+          disable-animations: true
+          script: bash flutter/ikram_browser/tool/collect_webview_provider.sh
+      - name: Seed, change provider, read original data, then update app
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 28
+          arch: x86_64
+          target: default
+          avd-name: webview-migration
+          disable-animations: true
+          script: bash flutter/ikram_browser/tool/verify_webview_update.sh apks/first/ikram-browser-debug.apk apks/second/ikram-browser-debug.apk
+      - name: Report provider-change result without treating unsupported as passed
+        if: always()
+        run: python3 flutter/ikram_browser/tool/report_webview_update.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-webview-update-evidence-${{ github.run_number }}
+          path: generated-artifacts/android-webview-update/
+          if-no-files-found: error
+          retention-days: 1
+
   publish-tested-apk:
     name: Offer APK only after every supported-version check passes
-    needs: [build, verify-update]
+    needs: [build, verify-update, verify-historical-update]
     if: >-
       always() && needs.build.result == 'success' &&
-      needs.verify-update.result == 'success'
+      needs.verify-update.result == 'success' &&
+      needs.verify-historical-update.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -213,7 +308,57 @@ jobs:
             echo "[Download the tested APK]($ARTIFACT_URL)"
             echo "Two fresh runners used the same certificate. APIs 24, 28 and 35 accepted in-place updates, displayed the saved profiles, and retained real HTTPS-origin WebView cookies/localStorage."
             echo "A differently signed update was rejected without changing installed data on each API."
+            echo "The retained versionCode 30 APK also passed a cross-revision update on API 35, retaining profiles and HTTPS cookies/localStorage without reseeding, including a second cold start."
             echo "Unzip and install ikram-browser-debug.apk OVER the existing app. Do not uninstall or clear storage."
             echo "Legacy APKs with a different signing certificate cannot be updated by this key. Stop if Android rejects the update."
             echo "This remains a debuggable test build, not an app-store release. Artifacts are kept for 30 days."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  verify-historical-update:
+    name: Verify retained release to current source (Android API 35)
+    needs: [build, retain-baseline]
+    if: >-
+      always() && !cancelled() &&
+      needs.build.result == 'success' && needs.retain-baseline.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Fetch the pinned earlier release without rebuilding or re-signing
+        run: python3 flutter/ikram_browser/tool/android_baseline.py fetch apks/baseline/ikram-browser-debug.apk
+      - uses: actions/download-artifact@v4
+        with:
+          name: signed-apk-2-${{ github.run_number }}
+          path: apks/current
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      # This original APK predates explicit inspection support on old WebViews.
+      # API 35 auto-enables inspection for debuggable apps. Do not patch/re-sign
+      # the baseline to make old APIs inspectable: keep its historical bytes.
+      - name: Seed in the earlier app and verify current app without reseeding
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          disable-animations: true
+          script: bash flutter/ikram_browser/tool/verify_android_update.sh apks/baseline/ikram-browser-debug.apk apks/current/ikram-browser-debug.apk flutter/ikram_browser/tool/android-update-baseline.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-historical-update-evidence-${{ github.run_number }}
+          path: generated-artifacts/android-update/
+          if-no-files-found: ignore
+          retention-days: 1

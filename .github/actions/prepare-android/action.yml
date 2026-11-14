@@ -43,4 +43,5 @@ runs:
         # Enable the native WebView inspection interface only in debuggable
         # builds. The update probe uses CDP, including on old System WebViews.
         python3 tool/configure_update_probe.py
+        python3 tool/configure_safe_android.py
         flutter pub get

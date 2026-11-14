@@ -3,11 +3,13 @@ import sys
 import xml.etree.ElementTree as ET
 
 
-def center(source, label):
+def center(source, label=None):
     import re
     for node in ET.fromstring(source).iter("node"):
         labels = (node.get("text", "") + "\n" + node.get("content-desc", "")).splitlines()
-        if label in labels:
+        matches = (node.get("class") == "android.widget.EditText"
+                   if label is None else label in labels)
+        if matches:
             bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",
                                   node.get("bounds", ""))
             if bounds:
@@ -18,4 +20,12 @@ def center(source, label):
 
 
 if __name__ == "__main__":
-    print(*center(open(sys.argv[1]).read(), sys.argv[2]))
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("xml")
+    parser.add_argument("label", nargs="?")
+    parser.add_argument("--first-editable", action="store_true")
+    args = parser.parse_args()
+    if args.first_editable == (args.label is not None):
+        parser.error("provide a label or --first-editable")
+    print(*center(open(args.xml).read(), args.label))

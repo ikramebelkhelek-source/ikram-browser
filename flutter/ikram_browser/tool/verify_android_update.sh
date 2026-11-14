@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Run only on a disposable emulator. Never uninstall or clear the app between APKs.
 set -Eeuo pipefail
-if [ "$#" -ne 2 ]; then
-  echo "Usage: $0 FIRST_APK SECOND_APK (disposable emulator only)" >&2
+if [ "$#" -ne 2 ] && [ "$#" -ne 3 ] && ! { [ "$#" -eq 4 ] && [ "$3" = "--webview-provider" ]; }; then
+  echo "Usage: $0 FIRST_APK SECOND_APK [BASELINE_MANIFEST | --webview-provider PROVIDER_APK] (disposable emulator only)" >&2
   exit 2
 fi
 first="$(realpath "$1")"
@@ -10,6 +10,12 @@ second="$(realpath "$2")"
 package=com.ikram.ikram_browser
 tool_dir="$(cd "$(dirname "$0")" && pwd)"
 evidence=generated-artifacts/android-update
+provider_apk=""
+stage=setup
+if [ "$#" -eq 4 ]; then
+  provider_apk="$(realpath "$4")"
+  evidence=generated-artifacts/android-webview-update
+fi
 # Refuse personal hardware: this script seeds and replaces synthetic app data.
 test "$(adb shell getprop ro.kernel.qemu | tr -d '\r')" = "1"
 if adb shell pm path "$package" | grep -q '^package:'; then
@@ -17,12 +23,32 @@ if adb shell pm path "$package" | grep -q '^package:'; then
   exit 1
 fi
 mkdir -p "$evidence"
-trap 'echo "Update verification failed at line $LINENO" >&2; adb exec-out screencap -p > "$evidence/failure.png" || true; adb logcat -d -t 500 > "$evidence/logcat.txt" || true' ERR
+failure() {
+  local code=$? status=failed
+  trap - ERR
+  if [ -n "$provider_apk" ] && [ "$code" -ne 78 ]; then
+    if [ "$code" -eq 3 ]; then
+      status=data-loss
+      if [ "$stage" = seed ] || [ "$stage" = before-provider ]; then status=fixture-failure; fi
+    fi
+    python3 "$tool_dir/webview_provider.py" outcome "$evidence" "$status" "$stage" \
+      "Verification exited with code $code" || true
+  fi
+  echo "Update verification stopped: stage=$stage exit=$code" >&2
+  adb exec-out screencap -p > "$evidence/failure.png" || true
+  adb logcat -d -t 500 > "$evidence/logcat.txt" || true
+  exit "$code"
+}
+trap failure ERR
 tools="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
 scratch="$(mktemp -d)"
 trap 'adb forward --remove tcp:9222 >/dev/null 2>&1 || true; rm -rf "$scratch"' EXIT
 adb shell getprop ro.build.version.sdk > "$evidence/api.txt"
 adb shell dumpsys webviewupdate > "$evidence/webview-provider.txt"
+if [ -n "$provider_apk" ]; then
+  source "$tool_dir/webview_provider.sh"
+  prepare_provider
+fi
 for index in first second; do
   apk="${!index}"
   "$tools/apksigner" verify --print-certs "$apk" > "$scratch/$index.cert"
@@ -44,18 +70,17 @@ for name in ("first", "second"):
     versions.append(int(match[2]))
 assert versions[1] > versions[0], "The update must have a newer versionCode"
 PY
+if [ "$#" -eq 3 ]; then
+  python3 "$tool_dir/android_baseline.py" verify "$first" --manifest "$3" \
+    --build-tools "$tools" --current-source "${GITHUB_SHA:-$(git rev-parse HEAD)}" \
+    --evidence "$evidence/baseline.json"
+fi
+# Keep public provenance for both APKs; never upload private signing material.
+cp "$scratch/first.cert" "$scratch/second.cert" "$scratch/first.badging" \
+  "$scratch/second.badging" "$evidence/"
 adb install "$first"
 adb shell am start -W -n "$package/.MainActivity" >/dev/null
 sleep 10
-adb shell am force-stop "$package"
-# Seed only profile preferences. Cookies and localStorage MUST be created by
-# the running WebView through the controlled HTTPS-origin page, not fake files.
-cat > "$scratch/FlutterSharedPreferences.xml" <<'XML'
-<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-<map><string name="flutter.ikram_profiles">[{"id":"upgrade-test","name":"Saved before update","proxy":"","proxyNeedsReview":false},{"id":"second-test","name":"Second saved profile","proxy":"","proxyNeedsReview":false}]</string></map>
-XML
-adb shell run-as "$package" mkdir -p shared_prefs app_webview/Default
-adb shell run-as "$package" tee shared_prefs/FlutterSharedPreferences.xml < "$scratch/FlutterSharedPreferences.xml" >/dev/null
 tap_label() {
   local label="$1" point
   for attempt in $(seq 1 30); do
@@ -69,6 +94,31 @@ tap_label() {
   done
   echo "Could not find visible control: $label" >&2
   return 1
+}
+seed_profiles() {
+  # Let the INSTALLED earlier app write its own schema, IDs and preferences.
+  # Injecting current-schema XML would hide historical migration regressions.
+  local name
+  for name in 'Saved before update' 'Second saved profile'; do
+    tap_label 'إضافة بروفايل'
+    # Flutter/Android versions expose editable-field hints differently.
+    tap_label --first-editable
+    adb shell input keyevent KEYCODE_MOVE_END
+    adb shell input keyevent $(printf 'KEYCODE_DEL %.0s' {1..80})
+    adb shell input text "${name// /%s}"
+    adb shell input keyevent KEYCODE_BACK
+    tap_label 'حفظ'
+    # Wait for the app to persist and display each profile before proceeding.
+    for attempt in $(seq 1 30); do
+      adb shell uiautomator dump /sdcard/upgrade-ui.xml >/dev/null 2>&1 || true
+      adb pull /sdcard/upgrade-ui.xml "$scratch/ui.xml" >/dev/null 2>&1 || true
+      if python3 "$tool_dir/update_ui.py" "$scratch/ui.xml" "$name" >/dev/null 2>&1; then
+        break
+      fi
+      sleep 1
+    done
+    python3 "$tool_dir/update_ui.py" "$scratch/ui.xml" "$name" >/dev/null
+  done
 }
 open_profile() {
   adb shell am start -W -n "$package/.MainActivity" >/dev/null
@@ -98,15 +148,27 @@ stop_and_flush() {
   adb shell am force-stop "$package"
 }
 token="$(python3 -c 'import secrets; print(secrets.token_hex(16))')"
+stage=seed
+seed_profiles
 open_profile seed
 node "$tool_dir/probe_webview.mjs" seed "$token" "$evidence/seed.json"
 adb exec-out screencap -p > "$evidence/seed.png"
 stop_and_flush
 # Verify the writes actually reached persistent storage BEFORE updating. This
 # distinguishes a fixture/flush failure from an update regression.
+stage=before-provider
 open_profile cold-start
 node "$tool_dir/probe_webview.mjs" verify "$token" "$evidence/cold-start.json"
 stop_and_flush
+if [ -n "$provider_apk" ]; then
+  change_provider
+  open_profile after-provider
+  node "$tool_dir/probe_webview.mjs" verify "$token" "$evidence/after-provider.json"
+  adb exec-out screencap -p > "$evidence/after-provider.png"
+  stop_and_flush
+fi
+stage=app-update
+adb shell run-as "$package" mkdir -p app_webview/Default
 printf 'webview-upgrade-fixture' | adb shell run-as "$package" tee app_webview/Default/upgrade-sentinel >/dev/null
 # Snapshot the WHOLE native WebView directory, including any databases created
 # on launch; no app process runs between this snapshot and the post-update one.
@@ -152,8 +214,29 @@ root = Path(sys.argv[1])
 assert contents(root / "before.tar") == contents(root / "after.tar"), "App data changed during update"
 assert contents(root / "before.tar") == contents(root / "rejected.tar"), "Rejected update changed app data"
 PY
+stage=after-app-update
 open_profile after-update
 node "$tool_dir/probe_webview.mjs" verify "$token" "$evidence/after-update.json"
 adb exec-out screencap -p > "$evidence/after-update.png"
 adb shell run-as "$package" cat app_webview/Default/upgrade-sentinel | grep -q 'webview-upgrade-fixture'
-echo "PASS: Different certificate rejected; same-key update retained UID, files, visible profile, Secure/HttpOnly cookies and localStorage." | tee "$evidence/result.txt"
+stop_and_flush
+stage=after-app-update-cold-start
+open_profile after-update-cold-start
+node "$tool_dir/probe_webview.mjs" verify "$token" "$evidence/after-update-cold-start.json"
+echo "PASS: Different certificate rejected; same-key update retained UID, files, visible profiles, Secure/HttpOnly cookies and localStorage through another cold start. Nothing was reseeded after the update." | tee "$evidence/result.txt"
+if [ -n "$provider_apk" ]; then
+  adb shell dumpsys webviewupdate > "$evidence/provider-final.txt"
+  cmp "$evidence/provider-after.txt" "$evidence/provider-final.txt" >/dev/null || {
+    # Runtime bookkeeping may change; compare active identity, not the whole dump.
+    PYTHONPATH="$tool_dir" python3 - "$evidence" <<'PY'
+from pathlib import Path
+import sys
+from webview_provider import current_provider
+root = Path(sys.argv[1])
+assert current_provider((root / "provider-after.txt").read_text()) == current_provider(
+    (root / "provider-final.txt").read_text()), "Active WebView changed during app update"
+PY
+  }
+  provider_report outcome passed complete \
+    "Original cookies/localStorage survived the provider change, app update and cold start without reseeding"
+fi

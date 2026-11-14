@@ -4,6 +4,7 @@ import 'browser_screen.dart';
 import 'browser_services.dart';
 import 'domain.dart';
 import 'profile_backup_dialogs.dart';
+import 'profile_backup_files.dart';
 import 'profile_editor.dart';
 import 'profile_store.dart';
 
@@ -16,6 +17,7 @@ class ProfilesScreen extends StatefulWidget {
 
 class _ProfilesScreenState extends State<ProfilesScreen> {
   final _store = ProfileStore();
+  final _backupFiles = const ProfileBackupFiles();
   List<Profile> _profiles = [];
   bool _loading = true;
   bool _busy = false;
@@ -122,23 +124,24 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         )) {
           return;
         }
-        await clearSharedBrowsingData();
-        _message('اكتمل مسح الكوكيز والكاش وتخزين الويب المشترك.');
+        final report = await clearSharedBrowsingData();
+        _message(report.message);
       });
 
   Future<void> _exportBackup() => _change(() async {
         try {
           final source = await _store.exportBackup();
           if (!mounted) return;
-          await showProfileExport(context, source);
+          await showProfileExport(context, source, files: _backupFiles);
         } catch (_) {
           _message('تعذّر تصدير الإعدادات. لم تتغير البروفايلات المحفوظة.');
         }
       });
 
   Future<void> _importBackup() => _change(() async {
-        final source = await showProfileImport(context, _profiles);
-        if (source == null) return;
+        final source =
+            await showProfileImport(context, _profiles, files: _backupFiles);
+        if (source == null || !mounted) return;
         try {
           final profiles = await _store.importBackup(source);
           if (!mounted) return;
@@ -187,7 +190,7 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     final disabled = _busy || _loading || _loadFailed;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('متصفح إكرام'),
+        title: const Text('إكرام سيف'),
         actions: [
           IconButton(
             tooltip: 'تصدير إعدادات البروفايلات',
