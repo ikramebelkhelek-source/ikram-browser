@@ -1,4 +1,6 @@
 // Run without Flutter: dart flutter/ikram_browser/tool/check_domain.dart
+import 'dart:convert';
+
 import '../lib/domain.dart';
 
 int checks = 0;
@@ -113,5 +115,99 @@ void main() {
   ]) {
     rejects(() => decodeProfiles(value), 'invalid stored data');
   }
+  final backup = encodeProfileBackup([
+    profile,
+    const Profile(id: 'review', name: 'مراجعة', proxyNeedsReview: true),
+    const Profile(id: 'system', name: 'شبكة النظام'),
+  ]);
+  final restored = decodeProfileBackup(backup);
+  expect(restored.length == 3, 'backup count');
+  expect(restored.first.id == profile.id, 'backup ID preserved');
+  expect(restored.first.name == profile.name, 'backup Arabic preserved');
+  expect(restored.first.proxy == profile.proxy, 'backup proxy preserved');
+  expect(restored[1].proxyNeedsReview, 'backup retains required review');
+  expect(restored[2].proxy.isEmpty, 'backup retains system network');
+  expect(
+    encodeProfileBackup(restored) == backup,
+    'backup round trip is lossless',
+  );
+  expect(
+    decodeProfileBackup(encodeProfileBackup([])).isEmpty,
+    'empty backup is valid',
+  );
+  final saved = [const Profile(id: 'saved', name: 'موجود')];
+  final merged = mergeProfileBackup(saved, backup);
+  expect(identical(merged.first, saved.first), 'merge keeps saved record');
+  expect(saved.length == 1, 'merge does not mutate input list');
+  expect(merged.length == 4, 'merge adds all backup records');
+  rejects(() => mergeProfileBackup(merged, backup), 're-import rejected');
+  rejects(
+    () => mergeProfileBackup([profile], backup),
+    'existing ID conflict rejects entire import',
+  );
+  expect(saved.single.name == 'موجود', 'rejected merge leaves input intact');
+  String wrap(Object? entries, {Object? version = 1}) => jsonEncode({
+        'format': 'ikram-profile-configurations',
+        'version': version,
+        'profiles': entries,
+      });
+  for (final value in [
+    '',
+    '{',
+    '[]',
+    '{}',
+    encodeProfiles([profile]), // Internal legacy storage is not a backup.
+    backup.substring(0, backup.length - 1),
+    backup.replaceFirst('ikram-profile-configurations', 'unknown'),
+    wrap([], version: 2),
+    wrap([], version: '1'),
+    wrap([], version: 1.0),
+    wrap({}),
+    wrap([null]),
+    wrap([profile.toJson(), profile.toJson()]),
+    jsonEncode({...jsonDecode(backup) as Map, 'cookies': []}),
+  ]) {
+    rejects(() => decodeProfileBackup(value), 'invalid backup');
+  }
+  for (final field in ['id', 'name', 'proxy', 'proxyNeedsReview']) {
+    final entry = {...profile.toJson()}..remove(field);
+    rejects(() => decodeProfileBackup(wrap([entry])), 'missing $field');
+    entry[field] = null;
+    rejects(() => decodeProfileBackup(wrap([entry])), 'null $field');
+  }
+  for (final change in [
+    {'id': ' '},
+    {'id': ' one '},
+    {'id': 1},
+    {'name': ''},
+    {'name': 123},
+    {'proxy': 123},
+    {'proxy': 'user:secret@host:8080'},
+    {'proxy': 'host:0'},
+    {'proxy': 'ftp://host:21'},
+    {'proxyNeedsReview': 'false'},
+    {'cookies': 'must not be imported'},
+  ]) {
+    rejects(
+      () => decodeProfileBackup(
+        wrap([
+          {...profile.toJson(), ...change},
+        ]),
+      ),
+      'invalid backup record',
+    );
+  }
+  rejects(
+    () => decodeProfileBackup(' ' * (maxProfileBackupLength + 1)),
+    'oversized backup',
+  );
+  rejects(
+    () => encodeProfileBackup([profile, profile]),
+    'invalid export rejected',
+  );
+  expect(
+    !encodeProfileBackup([legacy]).contains('secret'),
+    'export cannot leak sanitized legacy credentials',
+  );
   print('Passed $checks domain checks.');
 }

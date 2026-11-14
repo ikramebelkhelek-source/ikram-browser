@@ -31,6 +31,7 @@ jobs:
       - run: |
           flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
           dart tool/check_domain.dart
+          flutter test
           python3 -m unittest discover -s tool/tests -v
           node --test tool/tests/*.test.mjs
         working-directory: flutter/ikram_browser

@@ -137,9 +137,58 @@ key cannot update an app signed by a different old key. If Android reports
 Do not uninstall to “fix” it: uninstalling deletes profiles and browsing data.
 The only seamless migration is to reuse the exact original private signing key,
 if it still exists, before establishing the CI identity. An old APK contains
-only the public certificate; it cannot recover that private key. This app has
-no complete profile/browser-session export. Do not promise a lossless migration
-from a lost key or rely on Android backup to recover browser sessions.
+only the public certificate; it cannot recover that private key. Versions with
+the backup controls below can export **configurations only**, not browser
+sessions. A legacy APK without these controls cannot gain them via an
+incompatible update. If its original key is lost, keep it installed and manually
+record its visible profile names and supported proxy settings for re-entry on
+another device. This is not a lossless migration, and Android backup is not a
+reliable way to recover browser sessions. Never copy proxy passwords into this app.
+
+### Back up profile configurations before changing phones or reinstalling
+
+This feature is available **only in builds containing the export/import controls**.
+It does not recover data from an app that has already been uninstalled or had
+its storage cleared without a previous backup. It does not bypass Android
+signing restrictions or migrate website sessions.
+
+1. On the saved-profiles screen, tap **تصدير إعدادات البروفايلات** (upload-file
+   icon). The JSON includes only profile IDs, names, unauthenticated proxy
+   settings, and any proxy-review flag. Cookies, website storage, cache,
+   passwords, logins and open tabs are **not included**.
+2. Tap **نسخ JSON**, then save the **entire text**, unchanged, in a UTF-8 text
+   file such as `ikram-profiles.json` using a trusted editor outside the app.
+   Transfer a copy to your new phone or another trusted device. The clipboard
+   is temporary, not a durable backup; copying alone is not proof of a saved file.
+   The JSON is **unencrypted** and can expose profile names and proxy addresses.
+   Use trusted storage, avoid public sharing, and clear the clipboard afterward.
+3. Before removing anything, reopen the saved file, copy its contents, and use
+   **استيراد إعدادات البروفايلات** → **معاينة الاستيراد** to check that the saved
+   text is valid and contains the expected count and names. On the original
+   installation, a valid preview will also warn about already-saved IDs and
+   disable import. This is expected; cancel the dialog. Verification of JSON
+   does not verify any website session.
+4. On the destination installation, open **استيراد إعدادات البروفايلات**, paste
+   the complete JSON, preview it, then tap **تأكيد الاستيراد**. Cancel or dismiss
+   before confirmation to make no changes. After success, close and reopen the
+   app to check the configurations. You must sign in to websites again yourself.
+5. Import adds to existing configurations; it **never overwrites an existing
+   profile**. A repeated ID within the backup or a conflict with any saved ID
+   rejects the entire import, including otherwise valid records. On a brand-new
+   destination installation, its automatically created default profile may
+   share ID `1` with a backed-up profile. Delete **only that unused default on
+   the new installation** before importing. Do not delete real profiles to
+   resolve conflicts without separately backing them up.
+
+The versioned format is `{"format":"ikram-profile-configurations","version":1,
+"profiles":[...]}`. Each record must have string `id`, `name`, and `proxy`
+fields plus boolean `proxyNeedsReview`; IDs and names cannot be blank. Unknown
+formats/versions/fields, wrong types, malformed JSON, credential-bearing or
+invalid proxies, duplicates, and input over 1,048,576 characters are rejected
+before any write. Empty backups are valid but add nothing. Legacy stored proxy
+credentials are excluded from export and the review requirement is retained.
+If existing saved data cannot be read, import/export are blocked rather than
+replacing it; this feature is not a damaged-storage repair tool.
 
 ### Administrator: protect the signing identity
 
@@ -251,6 +300,7 @@ dart analyze lib/domain.dart tool/check_domain.dart
 ```
 
 For complete Flutter verification, run `flutter pub get` and `flutter analyze`,
+then `flutter test` (also required by the APK workflow),
 then use a native device/emulator to check:
 
 1. Create/edit/delete profiles and restart: configurations persist.

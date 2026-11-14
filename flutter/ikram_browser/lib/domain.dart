@@ -67,6 +67,66 @@ List<Profile> decodeProfiles(String source) {
 String encodeProfiles(List<Profile> profiles) =>
     jsonEncode(profiles.map((p) => p.toJson()).toList());
 
+/// A configuration-only interchange format, distinct from legacy preferences.
+/// Keep import strict: legacy credential cleanup must not hide invalid input.
+const maxProfileBackupLength = 1024 * 1024;
+
+List<Profile> decodeProfileBackup(String source) {
+  if (source.length > maxProfileBackupLength) {
+    throw const FormatException('النسخة أكبر من الحد المسموح (مليون حرف).');
+  }
+  final decoded = jsonDecode(source);
+  if (decoded is! Map<String, dynamic> ||
+      decoded.length != 3 ||
+      decoded['format'] != 'ikram-profile-configurations' ||
+      decoded['version'] is! int ||
+      decoded['version'] != 1 ||
+      decoded['profiles'] is! List) {
+    throw const FormatException('صيغة النسخة الاحتياطية أو إصدارها غير مدعوم.');
+  }
+  final entries = decoded['profiles'] as List;
+  for (final entry in entries) {
+    if (entry is! Map<String, dynamic> ||
+        entry.length != 4 ||
+        entry['id'] is! String ||
+        (entry['id'] as String).trim().isEmpty ||
+        entry['id'] != (entry['id'] as String).trim() ||
+        entry['name'] is! String ||
+        (entry['name'] as String).trim().isEmpty ||
+        entry['proxy'] is! String ||
+        entry['proxyNeedsReview'] is! bool) {
+      throw const FormatException('سجل بروفايل غير مكتمل أو غير صالح.');
+    }
+    ProxyEndpoint.parse(entry['proxy'] as String);
+  }
+  // Also rejects repeated IDs, even if the rest of the records differ.
+  return decodeProfiles(jsonEncode(entries));
+}
+
+String encodeProfileBackup(List<Profile> profiles) {
+  final source = const JsonEncoder.withIndent('  ').convert({
+    'format': 'ikram-profile-configurations',
+    'version': 1,
+    'profiles': profiles.map((profile) => profile.toJson()).toList(),
+  });
+  decodeProfileBackup(source);
+  return source;
+}
+
+/// All-or-nothing merge. Re-imports and conflicting IDs never replace records.
+List<Profile> mergeProfileBackup(List<Profile> saved, String source) {
+  final imported = decodeProfileBackup(source);
+  final ids = saved.map((profile) => profile.id).toSet();
+  for (final profile in imported) {
+    if (!ids.add(profile.id)) {
+      throw const FormatException(
+        'توجد معرّفات بروفايلات محفوظة مسبقاً. لم يتم استيراد أي بروفايل.',
+      );
+    }
+  }
+  return [...saved, ...imported];
+}
+
 class ProxyEndpoint {
   final String url;
   const ProxyEndpoint._(this.url);
@@ -83,9 +143,7 @@ class ProxyEndpoint {
     if (RegExp(r'\s').hasMatch(value)) {
       throw const FormatException('عنوان البروكسي لا يقبل مسافات.');
     }
-    final uri = Uri.tryParse(
-      value.contains('://') ? value : 'http://$value',
-    );
+    final uri = Uri.tryParse(value.contains('://') ? value : 'http://$value');
     if (uri == null ||
         !{'http', 'https', 'socks'}.contains(uri.scheme) ||
         uri.host.isEmpty ||
@@ -99,8 +157,9 @@ class ProxyEndpoint {
     }
     final host = uri.host.replaceAll(RegExp(r'^\[|\]$'), '');
     if (!host.contains(':') &&
-        !RegExp(r'^[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$')
-            .hasMatch(host)) {
+        !RegExp(
+          r'^[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?$',
+        ).hasMatch(host)) {
       throw const FormatException('اسم مضيف البروكسي غير صالح.');
     }
     final port = uri.hasPort
@@ -132,7 +191,9 @@ Uri resolveAddress(String input) {
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         RegExp(r'\s').hasMatch(value)) {
-      throw const FormatException('يسمح فقط بروابط HTTP وHTTPS دون بيانات دخول.');
+      throw const FormatException(
+        'يسمح فقط بروابط HTTP وHTTPS دون بيانات دخول.',
+      );
     }
     return uri;
   }
