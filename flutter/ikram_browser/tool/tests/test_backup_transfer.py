@@ -1,10 +1,8 @@
 """Fast checks for the native harness; these are NOT emulator evidence."""
 import copy
 import importlib.util
-import io
 import json
 from pathlib import Path
-import tarfile
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -60,21 +58,18 @@ class BackupTransferTests(unittest.TestCase):
             with self.subTest(kind=kind), self.assertRaises(AssertionError):
                 self.harness.backup_profiles(json.dumps(bad))
 
-    def test_directory_comparison_ignores_metadata_but_detects_loss_or_mutation(self):
-        def archive(entries, mtime):
-            output = io.BytesIO()
-            with tarfile.open(fileobj=output, mode="w") as tar:
-                for name, content in entries.items():
-                    entry = tarfile.TarInfo(name)
-                    entry.mtime = mtime
-                    entry.size = len(content)
-                    tar.addfile(entry, io.BytesIO(content))
-            return self.harness.file_hashes(output.getvalue())
-        entries = {"app_webview/Cookies": b"cookie", "app_webview/Local Storage/data": b"local"}
-        original = archive(entries, 0)
-        self.assertEqual(original, archive(entries, 123))
-        self.assertNotEqual(original, archive({"app_webview/Cookies": b"cookie"}, 0))
-        self.assertNotEqual(original, archive({**entries, "app_webview/Cookies": b"changed"}, 0))
+    def test_on_device_checksums_preserve_spaces_and_detect_loss_or_mutation(self):
+        original = self.harness.file_hashes(
+            "a" * 64 + "  app_webview/Cookies\n" +
+            "b" * 64 + "  app_webview/Local Storage/data\n")
+        self.assertEqual(original["app_webview/Local Storage/data"], "b" * 64)
+        self.assertNotEqual(original, self.harness.file_hashes(
+            "a" * 64 + "  app_webview/Cookies\n"))
+        self.assertNotEqual(original, self.harness.file_hashes(
+            "c" * 64 + "  app_webview/Cookies\n" +
+            "b" * 64 + "  app_webview/Local Storage/data\n"))
+        with self.assertRaises(AssertionError):
+            self.harness.file_hashes("truncated")
 
     def test_editor_shell_is_idempotent_and_separate_from_browser(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -135,6 +130,7 @@ class BackupTransferTests(unittest.TestCase):
         self.assertNotIn('"pm", "clear"', source)
         self.assertNotIn('"uninstall"', source)
         self.assertNotIn('"tee"', source)
+        self.assertNotIn('"tar"', source)
         self.assertIn('"ro.kernel.qemu"', source)
         self.assertIn('"Refusing existing installation"', source)
         destination = source.split("def destination(")[1].split("def main(")[0]

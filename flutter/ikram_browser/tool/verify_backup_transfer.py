@@ -5,14 +5,11 @@ cross the boundary; no preferences, WebView directories or app snapshots do.
 """
 import argparse
 import base64
-import hashlib
-import io
 import json
 from pathlib import Path
 import re
 import secrets
 import subprocess
-import tarfile
 import time
 import xml.etree.ElementTree as ET
 
@@ -44,10 +41,14 @@ def backup_profiles(source):
     return profiles
 
 
-def file_hashes(archive):
-    with tarfile.open(fileobj=io.BytesIO(archive)) as files:
-        return {f.name: hashlib.sha256(files.extractfile(f).read()).hexdigest()
-                for f in files if f.isfile()}
+def file_hashes(source):
+    """Parse on-device checksums without copying live Chromium caches to host."""
+    result = {}
+    for line in source.splitlines():
+        match = re.fullmatch(r"([a-f0-9]{64})\s+(.+)", line)
+        assert match, f"Invalid checksum output: {line!r}"
+        result[match[2]] = match[1]
+    return result
 
 
 def labels(node):
@@ -176,8 +177,10 @@ class Device:
         return json.loads(next(n.text for n in root if n.get("name") == "flutter.ikram_profiles"))
 
     def webview(self):
-        snapshot = file_hashes(self.adb("exec-out", "run-as", PACKAGE, "tar", "-cf",
-                                       "-", "app_webview", binary=True))
+        # Hash in place: a live tar can truncate when Chromium rotates a metrics
+        # file and can unnecessarily copy hundreds of MB of transient cache.
+        snapshot = file_hashes(self.shell(
+            f"run-as {PACKAGE} sh -c 'find app_webview -type f -exec sha256sum {{}} \\;'"))
         self.sequence += 1
         (self.evidence / f"webview-hashes-{self.sequence:02}.json").write_text(
             json.dumps(snapshot, indent=2))
@@ -447,7 +450,12 @@ def main():
         raise
     finally:
         (evidence / "result.json").write_text(json.dumps(result, indent=2))
-        device.adb("forward", "--remove-all")
+        # Cleanup must not replace the original failure if the emulator went
+        # offline. The emulator runner also terminates the disposable AVD.
+        try:
+            device.adb("forward", "--remove-all")
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            print(f"Forward cleanup unavailable: {error}")
 
 
 if __name__ == "__main__":
