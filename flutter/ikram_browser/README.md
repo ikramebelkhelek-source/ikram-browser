@@ -123,11 +123,23 @@ The WebView itself is not available in the browser-based Replit preview.
 
 The repository's `.github/workflows/android-apk.yml` builds an installable
 **debuggable test APK with a persistent CI signing key**, using Flutter 3.35.7
-and Java 17. Pull requests run source/domain/signing-tool checks **without
-signing secrets** and build a disposable-key APK pair only for automated testing,
-not the recommended download. Non-default-branch pushes do the same. Default-branch pushes
-and manual runs on an environment-approved branch also build two APKs on
-separate fresh runners. Both must match the protected signing certificate.
+and Java 17. The default **fast build** runs bounded source analysis,
+Flutter unit/widget tests, domain and signing-tool tests, then builds **one**
+APK on trusted default-branch pushes or manual runs on an environment-approved
+branch. Its protected signing certificate is verified before publishing the
+download and SHA-256 checksum. PRs and other branches run only the fast source
+checks, without access to signing secrets.
+
+Native backup-runtime checks, disposable APK pairs, and emulator migration
+checks are temporarily **opt-in**, not part of the default download gate.
+Fast builds do **not** certify backup transfer or browsing-data preservation;
+the download summary explicitly lists skipped checks. Flutter tests have a
+30-second per-test timeout and three-minute command limit. Native runtime and
+emulator steps also have time limits, rather than waiting indefinitely.
+
+To run **extended verification**, select **Run workflow → Extended checks**.
+This mode builds two APKs on separate fresh runners.
+Both must match the protected signing certificate.
 Disposable Android **API 24, 28 and 35** emulators then install the first APK,
 seed two saved profiles, and open a controlled HTTPS-origin fixture inside the
 actual app WebView. It creates persistent Secure JavaScript and HttpOnly cookies
@@ -140,8 +152,9 @@ and read-only verification of the original cookies/localStorage, including
 another cold start after updating. A separate **historical-release check on
 API 35** installs the original retained versionCode 30 APK, creates profiles
 through that earlier app's UI, seeds real HTTPS-origin storage, and updates
-directly to the current build without reseeding anything. **All three API checks
-must pass** before the protected-key APK is offered with its SHA-256 checksum.
+directly to the current build without reseeding anything. **In extended mode,
+all three API checks and the native backup-runtime check must pass** before the
+protected-key APK is offered with its SHA-256 checksum.
 Historical verification must also pass when its retained APK is available.
 When retention returns the explicit unavailable status (exit 4), that check is
 skipped and clearly reported as unverified; it does not prevent the download.
@@ -151,6 +164,7 @@ Once this repository and workflow have been pushed to GitHub:
 1. Open the repository's **Actions** tab.
 2. Select **Build Android APK**. To start manually, choose **Run workflow**.
    GitHub must have the workflow on the default branch for this manual control.
+   Leave **Extended checks** unchecked for the fast APK build.
 3. Open a successful run and click its APK download link in the summary, or find
    **ikram-browser-debug-…** under **Artifacts**.
 4. Download and unzip the artifact. Install `ikram-browser-debug.apk` on Android;
@@ -375,7 +389,7 @@ successful provider activation, lost storage fails as **data-loss**; launch or
 protocol errors fail as test errors, not unsupported combinations. Failure
 before the initial persistent fixture is proven is a fixture failure.
 An incomplete run cannot report success. This separate lane's summary does
-not broaden the tested-download claim: the original matrix remains mandatory,
+not broaden the tested-download claim: in extended mode, the original matrix remains mandatory,
 and historical migration coverage is claimed only when that check actually passes.
 
 Run the shell tools only through this fresh-emulator workflow. Local tests
@@ -397,7 +411,7 @@ The current APK must have the same certificate, a strictly greater versionCode,
 and a different source revision. Baseline metadata is public, not signing
 material.
 
-The `retain-baseline` job, on trusted runs only, stores that original APK as a
+The opt-in extended-mode `retain-baseline` job, on trusted runs only, stores that original APK as a
 permanent **CI-only prerelease asset** under `android-update-baseline-v30` in
 this GitHub repository. It has no signing-environment access; only that job has
 repository write permission. The first run retrieves the pinned, already-tested
@@ -424,9 +438,10 @@ than writing preferences in the current source's schema. They capture visible
 profile names before and after the update, verify the original storage tokens
 after update and again after a cold start, and never call the seed path after
 installing the current app. Historical evidence includes the pinned manifest
-and both APKs' public certificate/package reports. The final download job
-requires the same-revision matrix to succeed; historical verification must pass
-unless explicitly skipped because retention reported the baseline unavailable.
+and both APKs' public certificate/package reports. In extended mode, the final
+download job requires the same-revision matrix to succeed; historical verification
+must pass unless explicitly skipped because retention reported the baseline
+unavailable. Fast mode does not run or claim these migration checks.
 
 Local tooling checks (no Android SDK or emulator required):
 

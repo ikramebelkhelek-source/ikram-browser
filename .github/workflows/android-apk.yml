@@ -2,6 +2,12 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+    inputs:
+      extended_checks:
+        description: Run slower backup-runtime and emulator migration checks
+        type: boolean
+        required: false
+        default: false
   push:
     paths:
       - "flutter/ikram_browser/**"
@@ -24,20 +30,39 @@ jobs:
   checks:
     name: Check Flutter source (no signing secrets)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/prepare-android
-      - run: |
-          flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+      - name: Analyze Flutter source
+        timeout-minutes: 3
+        run: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
+        working-directory: flutter/ikram_browser
+      - name: Run bounded Flutter unit and widget tests
+        timeout-minutes: 4
+        run: timeout --kill-after=15s 180s flutter test --timeout 30s
+        working-directory: flutter/ikram_browser
+      - name: Check domain and workflow tools
+        timeout-minutes: 3
+        run: |
           dart tool/check_domain.dart
-          flutter test
           python3 -m unittest discover -s tool/tests -v
           node --test tool/tests/*.test.mjs
           for script in tool/*.sh; do bash -n "$script" || exit; done
         working-directory: flutter/ikram_browser
+
+  backup-runtime-checks:
+    name: Extended backup document runtime checks
+    needs: checks
+    if: inputs.extended_checks == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare-android
       - name: Check Android backup document access (API 24 and 35 runtimes)
-        run: ./gradlew :profile_backup_documents:testDebugUnitTest
+        timeout-minutes: 6
+        run: ./gradlew --no-daemon --console=plain :profile_backup_documents:testDebugUnitTest
         working-directory: flutter/ikram_browser/android
       - name: Retain native backup check results
         if: always()
@@ -58,12 +83,13 @@ jobs:
       (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     environment: android-signing
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
     strategy:
       fail-fast: true
       max-parallel: 1
       matrix:
-        sequence: [1, 2]
+        # Fast builds need only the final APK. Extended verification needs a pair.
+        sequence: ${{ fromJSON(inputs.extended_checks == true && '[1, 2]' || '[2]') }}
     defaults:
       run:
         working-directory: flutter/ikram_browser
@@ -79,6 +105,7 @@ jobs:
           ANDROID_SIGNING_CERT_SHA256: ${{ secrets.ANDROID_SIGNING_CERT_SHA256 }}
         run: python3 tool/configure_ci_signing.py
       - name: Build with a monotonically increasing version
+        timeout-minutes: 18
         env:
           ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
@@ -117,8 +144,9 @@ jobs:
       available: ${{ steps.retain.outputs.available }}
     needs: checks
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
+      inputs.extended_checks == true &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)))
     # Only this trusted maintenance job may upload CI fixture assets. It never
     # enters the signing environment and never handles the permanent key.
     permissions:
@@ -148,7 +176,7 @@ jobs:
               {
                 echo "### Historical APK unavailable"
                 echo "Optional historical migration coverage was skipped, not passed."
-                echo "The current APK still requires signing and supported-device update checks."
+                echo "Extended mode still requires signing and supported-device update checks."
               } >> "$GITHUB_STEP_SUMMARY"
             else
               echo "::error::Historical APK retention or integrity verification failed (exit $status)."
@@ -159,10 +187,11 @@ jobs:
   build-test:
     name: Disposable-key APKs (no protected secrets)
     needs: checks
-    # Also built on trusted runs: the separate provider-change lane never uses
+    if: inputs.extended_checks == true
+    # The separate provider-change lane never uses
     # protected-key APKs or enters the signing environment.
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: flutter/ikram_browser
@@ -192,10 +221,10 @@ jobs:
     name: Verify update on Android API ${{ matrix.api }}
     needs: [build, build-test]
     if: >-
-      always() && !cancelled() &&
+      always() && !cancelled() && inputs.extended_checks == true &&
       (needs.build.result == 'success' || needs.build-test.result == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -225,6 +254,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Compare certificates and update on Android
+        timeout-minutes: 10
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ matrix.api }}
@@ -232,6 +262,7 @@ jobs:
           target: google_apis
           profile: pixel_2
           disable-animations: true
+          emulator-boot-timeout: 180
           script: bash flutter/ikram_browser/tool/verify_android_update.sh apks/first/ikram-browser-debug.apk apks/second/ikram-browser-debug.apk
       - uses: actions/upload-artifact@v4
         if: always()
@@ -244,8 +275,9 @@ jobs:
   verify-webview-update:
     name: Verify data across a System WebView change (disposable keys only)
     needs: build-test
+    if: inputs.extended_checks == true
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -272,6 +304,7 @@ jobs:
       # Get a standalone x86_64 provider from Google's SDK system image rather
       # than an APK mirror. This donor has no app data or accounts.
       - name: Collect the API 29 AOSP provider on a separate disposable emulator
+        timeout-minutes: 10
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -279,8 +312,10 @@ jobs:
           target: default
           avd-name: webview-donor
           disable-animations: true
+          emulator-boot-timeout: 180
           script: bash flutter/ikram_browser/tool/collect_webview_provider.sh
       - name: Seed, change provider, read original data, then update app
+        timeout-minutes: 10
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 28
@@ -288,6 +323,7 @@ jobs:
           target: default
           avd-name: webview-migration
           disable-animations: true
+          emulator-boot-timeout: 180
           script: bash flutter/ikram_browser/tool/verify_webview_update.sh apks/first/ikram-browser-debug.apk apks/second/ikram-browser-debug.apk
       - name: Report provider-change result without treating unsupported as passed
         if: always()
@@ -301,16 +337,19 @@ jobs:
           retention-days: 1
 
   publish-tested-apk:
-    name: Offer APK after required update checks pass
-    needs: [build, verify-update, retain-baseline, verify-historical-update]
+    name: Publish signed APK with verification summary
+    needs: [build, verify-update, retain-baseline, verify-historical-update, backup-runtime-checks]
     if: >-
-      always() && needs.build.result == 'success' &&
-      needs.verify-update.result == 'success' &&
-      needs.retain-baseline.result == 'success' &&
-      (needs.verify-historical-update.result == 'success' ||
-       (needs.retain-baseline.outputs.available == 'false' &&
-        needs.verify-historical-update.result == 'skipped'))
+      always() && !cancelled() && needs.build.result == 'success' &&
+      (inputs.extended_checks != true ||
+       (needs.backup-runtime-checks.result == 'success' &&
+        needs.verify-update.result == 'success' &&
+        needs.retain-baseline.result == 'success' &&
+        (needs.verify-historical-update.result == 'success' ||
+         (needs.retain-baseline.outputs.available == 'false' &&
+          needs.verify-historical-update.result == 'skipped'))))
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -327,17 +366,25 @@ jobs:
         env:
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
           HISTORICAL_RESULT: ${{ needs.verify-historical-update.result }}
+          EXTENDED_CHECKS: ${{ inputs.extended_checks == true }}
         run: |
           {
-            echo "## Android update verified"
-            echo "[Download the tested APK]($ARTIFACT_URL)"
-            echo "Two fresh runners used the same certificate. APIs 24, 28 and 35 accepted in-place updates, displayed the saved profiles, and retained real HTTPS-origin WebView cookies/localStorage."
-            echo "A differently signed update was rejected without changing installed data on each API."
-            if [ "$HISTORICAL_RESULT" = success ]; then
-              echo "The retained versionCode 30 APK also passed a cross-revision update on API 35, retaining profiles and HTTPS cookies/localStorage without reseeding, including a second cold start."
+            if [ "$EXTENDED_CHECKS" = true ]; then
+              echo "## Android update verified"
+              echo "Two fresh runners used the same certificate. APIs 24, 28 and 35 accepted in-place updates, displayed the saved profiles, and retained real HTTPS-origin WebView cookies/localStorage."
+              echo "A differently signed update was rejected without changing installed data on each API."
+              if [ "$HISTORICAL_RESULT" = success ]; then
+                echo "The retained versionCode 30 APK also passed a cross-revision update on API 35, retaining profiles and HTTPS cookies/localStorage without reseeding, including a second cold start."
+              else
+                echo "**Historical migration check skipped: the original APK could not be retained. This is not a historical-migration pass.**"
+              fi
             else
-              echo "**Historical migration check skipped: the original APK could not be retained. This is not a historical-migration pass.**"
+              echo "## Signed APK — fast build"
+              echo "Source analysis, bounded unit/widget/tool tests, and APK signing verification passed."
+              echo "**Extended checks skipped:** native backup-runtime, device update, historical migration, and WebView migration checks were not run. This download does not certify backup transfer or browsing-data preservation."
+              echo "For extended verification, run this workflow manually with Extended checks enabled."
             fi
+            echo "[Download APK]($ARTIFACT_URL)"
             echo "Unzip and install ikram-browser-debug.apk OVER the existing app. Do not uninstall or clear storage."
             echo "Legacy APKs with a different signing certificate cannot be updated by this key. Stop if Android rejects the update."
             echo "This remains a debuggable test build, not an app-store release. Artifacts are kept for 30 days."
@@ -347,11 +394,11 @@ jobs:
     name: Verify retained release to current source (Android API 35)
     needs: [build, retain-baseline]
     if: >-
-      always() && !cancelled() &&
+      always() && !cancelled() && inputs.extended_checks == true &&
       needs.build.result == 'success' && needs.retain-baseline.result == 'success' &&
       needs.retain-baseline.outputs.available == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -377,6 +424,7 @@ jobs:
       # API 35 auto-enables inspection for debuggable apps. Do not patch/re-sign
       # the baseline to make old APIs inspectable: keep its historical bytes.
       - name: Seed in the earlier app and verify current app without reseeding
+        timeout-minutes: 10
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -384,6 +432,7 @@ jobs:
           target: google_apis
           profile: pixel_2
           disable-animations: true
+          emulator-boot-timeout: 180
           script: bash flutter/ikram_browser/tool/verify_android_update.sh apks/baseline/ikram-browser-debug.apk apks/current/ikram-browser-debug.apk flutter/ikram_browser/tool/android-update-baseline.json
       - uses: actions/upload-artifact@v4
         if: always()

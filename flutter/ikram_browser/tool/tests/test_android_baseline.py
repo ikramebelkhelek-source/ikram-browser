@@ -148,10 +148,11 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn("pm clear", script)
         self.assertNotIn("adb uninstall", script)
 
-    def test_historical_lane_is_optional_only_when_baseline_is_unavailable(self):
+    def test_extended_historical_lane_is_optional_only_when_baseline_is_unavailable(self):
         workflow = (ROOT / ".github/workflows/android-apk.yml").read_text()
         publish = workflow.split("  publish-tested-apk:")[1].split("  verify-historical-update:")[0]
-        self.assertIn("needs: [build, verify-update, retain-baseline, verify-historical-update]", publish)
+        self.assertIn("needs: [build, verify-update, retain-baseline, verify-historical-update, backup-runtime-checks]", publish)
+        self.assertIn("inputs.extended_checks != true", publish)
         self.assertIn("needs.verify-historical-update.result == 'success'", publish)
         self.assertIn("needs.retain-baseline.outputs.available == 'false'", publish)
         self.assertIn("needs.verify-historical-update.result == 'skipped'", publish)
@@ -162,6 +163,7 @@ class BaselineTests(unittest.TestCase):
         self.assertIn("signed-apk-2-", historic)
         self.assertIn("android-update-baseline.json", historic)
         self.assertIn("needs.retain-baseline.outputs.available == 'true'", historic)
+        self.assertIn("inputs.extended_checks == true", historic)
         self.assertNotIn("secrets.", historic)
         retain = workflow.split("  retain-baseline:")[1].split("  build-test:")[0]
         self.assertNotIn("secrets.", retain)
