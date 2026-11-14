@@ -122,7 +122,9 @@ class Device:
     def launch(self, package=PACKAGE):
         activity = ".MainActivity" if package == PACKAGE else ".BackupEditor"
         self.shell("am", "start", "-W", "-n", f"{package}/{activity}")
-        time.sleep(.7)
+        # am start can return before the resumed Flutter surface has input
+        # focus, even while its old semantics tree is already available.
+        time.sleep(2)
 
     def editor(self, text=None):
         self.shell("am", "force-stop", EDITOR)
@@ -283,6 +285,7 @@ def source(device, exchange):
     device.capture("save-cancelled")
     device.unchanged(before, webview)
     device.tap("نسخ JSON")
+    device.tap("إغلاق")
     device.editor()
     device.tap("Paste")
     device.tap("Save")
@@ -294,6 +297,7 @@ def source(device, exchange):
     device.find("OPENED")
     device.tap("Copy")
     device.launch()
+    device.tap(EXPORT)
     device.tap("حفظ ملف")
     device.save_document("browser-backup.json")
     device.capture("export-saved")
