@@ -66,15 +66,24 @@ class Device:
         return self.adb("shell", *args).strip()
 
     def dump(self):
+        # Android can return success but no XML during a first Flutter frame.
+        # Never accidentally consume an older screen after such a failure.
+        self.shell("rm", "-f", "/sdcard/backup-ui.xml")
         self.shell("uiautomator", "dump", "/sdcard/backup-ui.xml")
         source = self.shell("cat", "/sdcard/backup-ui.xml")
         (self.evidence / "latest-ui.xml").write_text(source)
         return ET.fromstring(source)
 
-    def find(self, label=None, *, editable=False, resource=None, timeout=25):
+    def find(self, label=None, *, editable=False, resource=None, timeout=45):
         until = time.monotonic() + timeout
         while True:
-            root = self.dump()
+            try:
+                root = self.dump()
+            except (subprocess.CalledProcessError, ET.ParseError):
+                if time.monotonic() > until:
+                    raise
+                time.sleep(1)
+                continue
             for node in root.iter("node"):
                 if ((editable and node.get("class") == "android.widget.EditText")
                     or (label is not None and label in labels(node))
@@ -132,8 +141,8 @@ class Device:
             self.back()
 
     def capture(self, name):
-        (self.evidence / f"{name}.xml").write_text(ET.tostring(self.dump(), encoding="unicode"))
         (self.evidence / f"{name}.png").write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))
+        (self.evidence / f"{name}.xml").write_text(ET.tostring(self.dump(), encoding="unicode"))
 
     def profiles(self):
         xml = self.shell("run-as", PACKAGE, "cat",
