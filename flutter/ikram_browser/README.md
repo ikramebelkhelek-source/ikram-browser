@@ -94,8 +94,12 @@ reached disk before the update. Each emulator rejects a copy signed with a
 new disposable certificate, then installs the correct second APK with
 `adb install -r`. Checks include unchanged UID, byte-for-byte preferences/WebView
 files after both rejected and accepted updates, visible profiles after relaunch,
-and read-only verification of the original cookies/localStorage. Only after
-**all three APIs pass** is the newer protected-key
+and read-only verification of the original cookies/localStorage, including
+another cold start after updating. A separate **historical-release check on
+API 35** installs the original retained versionCode 30 APK, creates profiles
+through that earlier app's UI, seeds real HTTPS-origin storage, and updates
+directly to the current build without reseeding anything. Only after
+**all three APIs and the historical-release check pass** is the newer protected-key
 APK uploaded as the recommended download, with a SHA-256 file checksum.
 
 Once this repository and workflow have been pushed to GitHub:
@@ -244,6 +248,55 @@ localStorage as well as its files. The protected-key APK pair is built on
 separate runners; PRs use one runner's disposable debug key without protected
 secrets. The script refuses non-emulators and pre-existing installations.
 Never run it on a personal device or use personal accounts.
+
+#### Retained earlier-release baseline
+
+`tool/android-update-baseline.json` pins the original main-branch versionCode
+**30** APK from source `f334837895f9245cf72e1ef1fdd814759e480220`, built by
+[run 43478338382](https://github.com/ikramebelkhelek-source/ikram-browser/actions/runs/43478338382).
+It represents the app before configuration-backup support. It is not rebuilt
+from old source: today's SDKs/dependencies could change that APK and hide real
+migration bugs. Its file SHA-256 and public signing-certificate SHA-256 are
+checked before installation, along with its application ID and versionCode.
+The current APK must have the same certificate, a strictly greater versionCode,
+and a different source revision. Baseline metadata is public, not signing
+material.
+
+The `retain-baseline` job, on trusted runs only, stores that original APK as a
+permanent **CI-only prerelease asset** under `android-update-baseline-v30` in
+this GitHub repository. It has no signing-environment access; only that job has
+repository write permission. The first run retrieves the pinned, already-tested
+APK artifact and verifies it before retention. This bootstrap **must run before
+the original 30-day artifact expires** (created 2026-11-13). Subsequent runs use
+the permanent asset, independent of Actions artifact expiry. An unavailable,
+expired or corrupt baseline fails the pipeline; there is no fallback to a new
+build, a new key, or a same-revision pair. Downloads are checksum-verified and
+atomically installed locally. The retention job never replaces an existing
+release asset. Only the baseline APK and its public manifest are uploaded,
+never a build directory, keystore or signing properties.
+
+This historical APK predates explicit native WebView inspection on old Android
+images, so the historical lane uses API 35's automatic debugging for debuggable
+apps. The unchanged same-revision lanes still cover APIs 24, 28 and 35; they do
+not claim historical migration coverage on APIs 24/28. PRs and non-default-branch
+pushes retain disposable-key checks, but cannot perform a permanent-key
+historical update and do not advertise a tested download.
+
+Both paths create the two profiles through the installed first app's UI, rather
+than writing preferences in the current source's schema. They capture visible
+profile names before and after the update, verify the original storage tokens
+after update and again after a cold start, and never call the seed path after
+installing the current app. Historical evidence includes the pinned manifest
+and both APKs' public certificate/package reports. The final download job
+requires both the same-revision matrix and historical lane to succeed.
+
+Local tooling checks (no Android SDK or emulator required):
+
+```sh
+python3 -m unittest discover -s flutter/ikram_browser/tool/tests -v
+node --test flutter/ikram_browser/tool/tests/*.test.mjs
+bash -n flutter/ikram_browser/tool/{verify_android_update,retain_android_baseline}.sh
+```
 
 `tool/update_test_page.html` is a controlled, repository-owned page supplied to
 the real WebView at `https://update-test.invalid` through its DevTools request

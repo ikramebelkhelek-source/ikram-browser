@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "repository": "ikramebelkhelek-source/ikram-browser",
+  "release_tag": "android-update-baseline-v30",
+  "asset": "ikram-browser-debug.apk",
+  "sha256": "57da04b65eef7625fafa45d0077ba21ca6b405bbbbe46ba307a7c0fc4dfaa7ed",
+  "certificate_sha256": "40846f83c99e0996fb1ac458e0049c481e4c5446f3b7f0650883c70a41eb0547",
+  "application_id": "com.ikram.ikram_browser",
+  "version_code": 30,
+  "source_commit": "f334837895f9245cf72e1ef1fdd814759e480220",
+  "source_run_id": 43478338382,
+  "source_artifact_id": 14064068396,
+  "test_api": 35
+}
