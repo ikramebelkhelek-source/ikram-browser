@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -147,15 +148,20 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn("pm clear", script)
         self.assertNotIn("adb uninstall", script)
 
-    def test_historical_lane_blocks_download_and_does_not_use_signing_secrets(self):
+    def test_historical_lane_is_optional_only_when_baseline_is_unavailable(self):
         workflow = (ROOT / ".github/workflows/android-apk.yml").read_text()
         publish = workflow.split("  publish-tested-apk:")[1].split("  verify-historical-update:")[0]
-        self.assertIn("needs: [build, verify-update, verify-historical-update]", publish)
+        self.assertIn("needs: [build, verify-update, retain-baseline, verify-historical-update]", publish)
         self.assertIn("needs.verify-historical-update.result == 'success'", publish)
+        self.assertIn("needs.retain-baseline.outputs.available == 'false'", publish)
+        self.assertIn("needs.verify-historical-update.result == 'skipped'", publish)
+        self.assertIn("needs.retain-baseline.result == 'success'", publish)
+        self.assertIn("This is not a historical-migration pass", publish)
         historic = workflow.split("  verify-historical-update:")[1]
         self.assertIn("android_baseline.py fetch", historic)
         self.assertIn("signed-apk-2-", historic)
         self.assertIn("android-update-baseline.json", historic)
+        self.assertIn("needs.retain-baseline.outputs.available == 'true'", historic)
         self.assertNotIn("secrets.", historic)
         retain = workflow.split("  retain-baseline:")[1].split("  build-test:")[0]
         self.assertNotIn("secrets.", retain)
@@ -167,10 +173,41 @@ class BaselineTests(unittest.TestCase):
         self.assertNotIn(" --clobber", retention_script.replace("# No --clobber:", "#"))
         self.assertIn('if [ "$status" -ne 4 ]', retention_script)
 
-    def run_retention(self, fetch_status, artifact_status=0):
+    def test_optional_workflow_handles_only_unavailable_exit_as_skip(self):
+        workflow = (ROOT / ".github/workflows/android-apk.yml").read_text()
+        retention = workflow.split("  retain-baseline:")[1].split("  build-test:")[0]
+        script = textwrap.dedent(retention.split("        run: |\n", 1)[1])
+        command = "bash flutter/ikram_browser/tool/retain_android_baseline.sh"
+        self.assertIn(command, script)
+        for status in (0, 4, 1, 2):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                fake = root / "retention.sh"
+                fake.write_text(f"exit {status}\n")
+                output, summary = root / "output", root / "summary"
+                result = subprocess.run(
+                    ["bash", "-e", "-c", script.replace(command, 'bash "$FAKE_RETENTION"')],
+                    env={**os.environ, "FAKE_RETENTION": str(fake),
+                         "GITHUB_OUTPUT": str(output), "GITHUB_STEP_SUMMARY": str(summary)},
+                    capture_output=True, text=True,
+                )
+                if status == 0:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(), "available=true\n")
+                elif status == 4:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(), "available=false\n")
+                    self.assertIn("skipped, not passed", summary.read_text())
+                else:
+                    self.assertEqual(result.returncode, status)
+                    self.assertFalse(output.exists())
+
+    def run_retention(self, fetch_status, artifact_status=0, extract_apk=True):
         """Exercise the orchestration without network, SDK or credentials."""
         commands = self.root / "commands"
         commands.mkdir()
+        extraction = ('mkdir -p "$(dirname "$3")"; printf baseline > "$3";'
+                      if extract_apk else ":;")
         python = commands / "python3"
         python.write_text(
             "#!/usr/bin/env bash\nset -eu\n"
@@ -180,7 +217,7 @@ class BaselineTests(unittest.TestCase):
             'case "$2" in\n'
             f'fetch) if [ ! -e "{self.root}/fetched" ]; then\n'
             f'  touch "{self.root}/fetched"; exit {fetch_status}; fi;;\n'
-            'extract) mkdir -p "$(dirname "$3")"; printf baseline > "$3";;\n'
+            f'extract) {extraction};\n'
             'verify) ;;\n'
             '*) exit 99;;\nesac\n')
         gh = commands / "gh"
@@ -223,6 +260,12 @@ class BaselineTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn("release upload", calls)
         self.assertNotIn("python extract", calls)
+
+    def test_missing_local_apk_is_optional_unavailable_not_an_upload(self):
+        result, calls = self.run_retention(fetch_status=4, extract_apk=False)
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertIn("Historical APK file is unavailable", result.stderr)
+        self.assertNotIn("release upload", calls)
 
 
 if __name__ == "__main__":

@@ -113,6 +113,8 @@ jobs:
 
   retain-baseline:
     name: Retain the original historical APK (no signing secrets)
+    outputs:
+      available: ${{ steps.retain.outputs.available }}
     needs: checks
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -131,9 +133,28 @@ jobs:
           distribution: temurin
           java-version: "17"
       - name: Preserve or verify the pinned original binary
+        id: retain
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash flutter/ikram_browser/tool/retain_android_baseline.sh
+        shell: bash
+        run: |
+          if bash flutter/ikram_browser/tool/retain_android_baseline.sh; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            if [ "$status" -eq 4 ]; then
+              echo "::warning::Historical APK retention is unavailable (exit 4). Skipping the optional historical migration check."
+              echo "available=false" >> "$GITHUB_OUTPUT"
+              {
+                echo "### Historical APK unavailable"
+                echo "Optional historical migration coverage was skipped, not passed."
+                echo "The current APK still requires signing and supported-device update checks."
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::error::Historical APK retention or integrity verification failed (exit $status)."
+              exit "$status"
+            fi
+          fi
 
   build-test:
     name: Disposable-key APKs (no protected secrets)
@@ -280,12 +301,15 @@ jobs:
           retention-days: 1
 
   publish-tested-apk:
-    name: Offer APK only after every supported-version check passes
-    needs: [build, verify-update, verify-historical-update]
+    name: Offer APK after required update checks pass
+    needs: [build, verify-update, retain-baseline, verify-historical-update]
     if: >-
       always() && needs.build.result == 'success' &&
       needs.verify-update.result == 'success' &&
-      needs.verify-historical-update.result == 'success'
+      needs.retain-baseline.result == 'success' &&
+      (needs.verify-historical-update.result == 'success' ||
+       (needs.retain-baseline.outputs.available == 'false' &&
+        needs.verify-historical-update.result == 'skipped'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -302,13 +326,18 @@ jobs:
       - name: Show safe update instructions
         env:
           ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          HISTORICAL_RESULT: ${{ needs.verify-historical-update.result }}
         run: |
           {
             echo "## Android update verified"
             echo "[Download the tested APK]($ARTIFACT_URL)"
             echo "Two fresh runners used the same certificate. APIs 24, 28 and 35 accepted in-place updates, displayed the saved profiles, and retained real HTTPS-origin WebView cookies/localStorage."
             echo "A differently signed update was rejected without changing installed data on each API."
-            echo "The retained versionCode 30 APK also passed a cross-revision update on API 35, retaining profiles and HTTPS cookies/localStorage without reseeding, including a second cold start."
+            if [ "$HISTORICAL_RESULT" = success ]; then
+              echo "The retained versionCode 30 APK also passed a cross-revision update on API 35, retaining profiles and HTTPS cookies/localStorage without reseeding, including a second cold start."
+            else
+              echo "**Historical migration check skipped: the original APK could not be retained. This is not a historical-migration pass.**"
+            fi
             echo "Unzip and install ikram-browser-debug.apk OVER the existing app. Do not uninstall or clear storage."
             echo "Legacy APKs with a different signing certificate cannot be updated by this key. Stop if Android rejects the update."
             echo "This remains a debuggable test build, not an app-store release. Artifacts are kept for 30 days."
@@ -319,7 +348,8 @@ jobs:
     needs: [build, retain-baseline]
     if: >-
       always() && !cancelled() &&
-      needs.build.result == 'success' && needs.retain-baseline.result == 'success'
+      needs.build.result == 'success' && needs.retain-baseline.result == 'success' &&
+      needs.retain-baseline.outputs.available == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

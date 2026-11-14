@@ -140,9 +140,11 @@ and read-only verification of the original cookies/localStorage, including
 another cold start after updating. A separate **historical-release check on
 API 35** installs the original retained versionCode 30 APK, creates profiles
 through that earlier app's UI, seeds real HTTPS-origin storage, and updates
-directly to the current build without reseeding anything. Only after
-**all three APIs and the historical-release check pass** is the newer protected-key
-APK uploaded as the recommended download, with a SHA-256 file checksum.
+directly to the current build without reseeding anything. **All three API checks
+must pass** before the protected-key APK is offered with its SHA-256 checksum.
+Historical verification must also pass when its retained APK is available.
+When retention returns the explicit unavailable status (exit 4), that check is
+skipped and clearly reported as unverified; it does not prevent the download.
 
 Once this repository and workflow have been pushed to GitHub:
 
@@ -373,8 +375,8 @@ successful provider activation, lost storage fails as **data-loss**; launch or
 protocol errors fail as test errors, not unsupported combinations. Failure
 before the initial persistent fixture is proven is a fixture failure.
 An incomplete run cannot report success. This separate lane's summary does
-not broaden the tested-download claim: the original matrix and historical
-release checks retain their existing release gates.
+not broaden the tested-download claim: the original matrix remains mandatory,
+and historical migration coverage is claimed only when that check actually passes.
 
 Run the shell tools only through this fresh-emulator workflow. Local tests
 exercise compatibility classification, the real probe CLI with simulated CDP
@@ -401,9 +403,11 @@ this GitHub repository. It has no signing-environment access; only that job has
 repository write permission. The first run retrieves the pinned, already-tested
 APK artifact and verifies it before retention. This bootstrap **must run before
 the original 30-day artifact expires** (created 2026-11-13). Subsequent runs use
-the permanent asset, independent of Actions artifact expiry. An unavailable,
-expired or corrupt baseline fails the pipeline; there is no fallback to a new
-build, a new key, or a same-revision pair. Downloads are checksum-verified and
+the permanent asset, independent of Actions artifact expiry. Retention exit 4
+now makes the historical check optional: the workflow warns and skips it rather
+than blocking an APK that passes the required update checks. Other retention
+errors, including failed integrity verification, still fail the pipeline.
+There is no fallback to a rebuilt APK or a new key. Downloads are checksum-verified and
 atomically installed locally. The retention job never replaces an existing
 release asset. Only the baseline APK and its public manifest are uploaded,
 never a build directory, keystore or signing properties.
@@ -421,7 +425,8 @@ profile names before and after the update, verify the original storage tokens
 after update and again after a cold start, and never call the seed path after
 installing the current app. Historical evidence includes the pinned manifest
 and both APKs' public certificate/package reports. The final download job
-requires both the same-revision matrix and historical lane to succeed.
+requires the same-revision matrix to succeed; historical verification must pass
+unless explicitly skipped because retention reported the baseline unavailable.
 
 Local tooling checks (no Android SDK or emulator required):
 

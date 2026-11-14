@@ -36,6 +36,10 @@ if ! gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
     --notes "Original historical APK for synthetic emulator migration tests only. Not a new production release. Public integrity and certificate metadata: android-update-baseline.json."
 fi
 # No --clobber: never replace the historical binary, even on a retry.
+if [ ! -s "$apk" ]; then
+  echo "Historical APK file is unavailable; skipping optional retention." >&2
+  exit 4
+fi
 gh release upload "$tag" "$apk" "$manifest" --repo "$repo"
 gh release edit "$tag" --repo "$repo" --draft=false --prerelease --latest=false
 python3 "$tool_dir/android_baseline.py" fetch "$output/retained.apk"
