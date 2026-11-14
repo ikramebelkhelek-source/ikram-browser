@@ -198,7 +198,9 @@ class Device:
 
     def save_document(self, name):
         self.downloads()
-        self.tap(resource="/file_name")
+        # Android 35 DocumentsUI uses android:id/title for the filename.
+        # Select the native editor by role instead of a provider-private ID.
+        self.tap(editable=True)
         self.shell("input", "keycombination", "113", "29")
         self.shell("input", "text", name)
         self.tap("SAVE")
