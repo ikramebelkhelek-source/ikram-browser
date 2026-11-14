@@ -74,7 +74,7 @@ class Device:
         (self.evidence / "latest-ui.xml").write_text(source)
         return ET.fromstring(source)
 
-    def find(self, label=None, *, editable=False, resource=None, timeout=45):
+    def find(self, label=None, *, editable=False, resource=None, index=0, timeout=45):
         until = time.monotonic() + timeout
         while True:
             try:
@@ -84,6 +84,7 @@ class Device:
                     raise
                 time.sleep(1)
                 continue
+            matches = 0
             for node in root.iter("node"):
                 if ((editable and node.get("class") == "android.widget.EditText")
                     or (label is not None and label in labels(node))
@@ -93,9 +94,19 @@ class Device:
                     if bounds:
                         left, top, right, bottom = map(int, bounds.groups())
                         if right > left and bottom > top:
+                            if matches < index:
+                                matches += 1
+                                continue
                             return node, ((left + right) // 2, (top + bottom) // 2)
             if time.monotonic() > until:
                 raise AssertionError(f"Visible control missing: {label or resource or 'editor'}")
+            if editable or label in ("فتح ملف", "البروكسي (Android فقط)"):
+                # The real 320dp RTL dialog intentionally scrolls. Do not assume
+                # the JSON field or file button is initially inside its viewport.
+                size = re.findall(r"(\d+)x(\d+)", self.shell("wm", "size"))[-1]
+                width, height = map(int, size)
+                self.shell("input", "swipe", str(width // 2), str(int(height * .62)),
+                           str(width // 2), str(int(height * .38)), "350")
             time.sleep(.4)
 
     def tap(self, label=None, **options):
@@ -130,8 +141,10 @@ class Device:
         self.find("COPIED")
         self.launch()
 
-    def paste(self, *, replace=False, label=None):
-        self.tap(label, editable=label is None)
+    def paste(self, *, replace=False, field=0):
+        # Flutter's Android semantics can omit InputDecoration labels/hints.
+        # Locate visible native editable nodes rather than assuming hint labels.
+        self.tap(editable=True, index=field)
         if replace:
             self.shell("input", "keycombination", "113", "29")  # Ctrl+A
         # Flutter maps Ctrl+V to PasteTextIntent. Android's KEYCODE_PASTE can
@@ -237,7 +250,7 @@ def source(device, exchange):
     device.paste(replace=True)
     # Set proxy through the real profile editor, not direct preference writes.
     device.clipboard("socks://192.0.2.42:1080")
-    device.paste(label="البروكسي (Android فقط)")
+    device.paste(field=1)
     device.tap("حفظ")
     device.find(SECOND_NAME)
     token = secrets.token_hex(16)
