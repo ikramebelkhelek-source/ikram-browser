@@ -1,0 +1,77 @@
+name: Transfer profile backups between clean phones
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "flutter/ikram_browser/**"
+      - ".github/workflows/android-backup-transfer.yml"
+      - ".github/actions/prepare-android/**"
+  pull_request:
+    paths:
+      - "flutter/ikram_browser/**"
+      - ".github/workflows/android-backup-transfer.yml"
+      - ".github/actions/prepare-android/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-transfer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transfer:
+    name: Clipboard, editor and SAF transfer (Android 35)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/prepare-android
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build browser and independent synthetic editor with disposable keys
+        working-directory: flutter/ikram_browser
+        run: |
+          python3 tool/configure_backup_editor.py
+          flutter build apk --debug --no-pub
+          cd android && ./gradlew :backup_editor:assembleDebug
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Export on clean source phone using Android clipboard and document picker
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          avd-name: backup-source
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data
+          disable-animations: true
+          script: python3 flutter/ikram_browser/tool/verify_backup_transfer.py source flutter/ikram_browser/build/app/outputs/flutter-apk/app-debug.apk flutter/ikram_browser/build/backup_editor/outputs/apk/debug/backup_editor-debug.apk
+      - name: Import on a different clean phone, cancel, conflict, restart and compare
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          avd-name: backup-destination
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -wipe-data
+          disable-animations: true
+          script: python3 flutter/ikram_browser/tool/verify_backup_transfer.py destination flutter/ikram_browser/build/app/outputs/flutter-apk/app-debug.apk flutter/ikram_browser/build/backup_editor/outputs/apk/debug/backup_editor-debug.apk
+      - name: Retain synthetic native evidence, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-backup-transfer-${{ github.run_number }}
+          path: generated-artifacts/backup-transfer/
+          if-no-files-found: error
+          retention-days: 7
