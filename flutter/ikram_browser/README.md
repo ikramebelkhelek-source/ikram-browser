@@ -452,7 +452,11 @@ document picker, kills/reopens the editor and reopens the saved document.
 It also saves directly from the browser. Both UTF-8 documents must match byte
 for byte and contain only the strict configuration schema.
 
-Only these two JSON documents cross to a different, clean AVD. The destination
+The destination runs on a **separate fresh CI runner**, not just a second AVD
+on the source host. Both phones install the exact same disposable-key APKs.
+Only the two JSON documents transfer user data; source preferences, WebView
+directories, VM data and build/emulator processes never reach the destination.
+The destination
 pastes the editor's reopened text, detects the default-ID conflict, cancels,
 deletes only the fresh default configuration and previews again. It checks
 valid-preview cancellation and cold restart without a write, opens and confirms
