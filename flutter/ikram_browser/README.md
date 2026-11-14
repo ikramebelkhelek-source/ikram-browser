@@ -436,7 +436,56 @@ The temporary rerun workflow was removed after verification. The permanent
 workflow includes the corrected check and retains an emulator screenshot for one
 day. These tests used synthetic data, not a personal device or real website login.
 
-### Local checks
+### Native configuration transfer between two phones
+
+`.github/workflows/android-backup-transfer.yml` runs a separate Android 35 lane
+using only disposable debug keys, never protected signing keys. It does **not**
+update an APK or change the WebView provider. It builds an independent synthetic
+text-editor APK from `tool/backup_editor/BackupEditor.java`; that editor never
+ships in the browser. Both AVDs are wiped, and the harness refuses non-emulators
+and pre-existing browser/editor installations.
+
+The source phone creates Arabic configurations through the installed browser UI,
+including default ID `1` and a non-routable TEST-NET proxy. It exports through
+the real Android clipboard into the independent editor, saves through Android's
+document picker, kills/reopens the editor and reopens the saved document.
+It also saves directly from the browser. Both UTF-8 documents must match byte
+for byte and contain only the strict configuration schema.
+
+Only these two JSON documents cross to a different, clean AVD. The destination
+pastes the editor's reopened text, detects the default-ID conflict, cancels,
+deletes only the fresh default configuration and previews again. It checks
+valid-preview cancellation and cold restart without a write, opens and confirms
+the browser-saved file, rejects repeated import, then cold-restarts and compares
+all names, IDs, proxy URLs and review flags. Malformed pasted text and both
+document-picker cancellations must leave profiles unchanged. Destination checks
+run at **320 dp width with the app's real Arabic RTL layout and native IME**.
+
+Each phone first creates different synthetic Secure/HttpOnly cookies and
+localStorage in the real WebView using the existing controlled HTTPS fixture.
+After closing the browser and letting storage flush, the backup operations must
+leave every file in its WebView directory unchanged. Final read-only WebView
+probes must retain each phone's **own** original session, not the other phone's.
+These checks concern backup configuration boundaries, not provider updates or
+website-specific login policies.
+
+Run on **two fresh disposable emulators in sequence**, from the repository root
+(build both debug APKs with the same preparation as CI):
+
+```sh
+python3 flutter/ikram_browser/tool/verify_backup_transfer.py source BROWSER_APK EDITOR_APK
+# Shut down source AVD; boot a DIFFERENT wiped AVD. Keep only the exchange files.
+python3 flutter/ikram_browser/tool/verify_backup_transfer.py destination BROWSER_APK EDITOR_APK
+```
+
+Synthetic evidence is retained for seven days under the CI
+`android-backup-transfer-*` artifact: per-phone pass/fail reports, Arabic narrow
+screen captures and UI trees, compared profiles, WebView file hashes and
+read-only storage results. A failure uploads its current screen and recent
+logs. `tool/tests/test_backup_transfer.py` checks the harness and comparison
+oracles locally; passing those fast tests is **not** evidence of a native run.
+
+### Local source checks
 
 The dependency-free domain checks can run with the Dart SDK:
 

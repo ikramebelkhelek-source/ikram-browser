@@ -60,7 +60,7 @@ class Device:
         self.sequence = 0
 
     def adb(self, *args, binary=False):
-        return subprocess.check_output(["adb", *args], text=not binary)
+        return subprocess.check_output(["adb", *args], text=not binary, timeout=90)
 
     def shell(self, *args):
         return self.adb("shell", *args).strip()
@@ -360,14 +360,21 @@ def main():
     try:
         assert device.shell("getprop", "ro.kernel.qemu") == "1", "Refusing personal hardware"
         for package in (PACKAGE, EDITOR):
-            assert not device.shell("pm", "path", package).startswith("package:"), "Refusing existing installation"
+            installed = device.shell("pm", "list", "packages", package).splitlines()
+            assert f"package:{package}" not in installed, "Refusing existing installation"
         device.adb("install", str(args.apk))
         device.adb("install", str(args.editor_apk))
         (evidence / "device.txt").write_text(
             device.shell("getprop", "ro.build.fingerprint") + "\n" +
             device.shell("dumpsys", "webviewupdate"))
+        device.adb("logcat", "-c")
         device.launch()
         (source if args.phase == "source" else destination)(device, exchange)
+        log = device.adb("logcat", "-d")
+        (evidence / "logcat.txt").write_text(log)
+        assert not re.search(
+            r"A RenderFlex overflowed|EXCEPTION CAUGHT BY|Another exception was thrown:|"
+            r"Unhandled Exception:", log), "Flutter layout/runtime error; see logcat"
         result["status"] = "passed"
     except Exception as error:
         result["error"] = str(error)
