@@ -108,6 +108,19 @@ class BackupTransferTests(unittest.TestCase):
             'bounds="[0,300][100,350]"/></hierarchy>')
         self.assertEqual(device.find("Downloads", resource="/title")[1], (50, 225))
 
+    def test_document_navigation_waits_for_drawer_to_close_before_file_clicks(self):
+        device = self.harness.Device(Path("."))
+        closed = ET.fromstring('<hierarchy><node text="Downloads"/></hierarchy>')
+        opened = ET.fromstring(
+            '<hierarchy><node text="Open from" bounds="[10,20][100,60]"/></hierarchy>')
+        frames = iter([closed, opened, closed])
+        device.dump = lambda: next(frames)
+        taps = []
+        device.tap = lambda label, **kwargs: taps.append(label)
+        with patch.object(self.harness.time, "sleep"):
+            device.downloads()
+        self.assertEqual(taps, ["Show roots", "Downloads", "Downloads"])
+
     def test_transient_empty_accessibility_tree_is_retried(self):
         device = self.harness.Device(Path("."))
         attempts = iter([

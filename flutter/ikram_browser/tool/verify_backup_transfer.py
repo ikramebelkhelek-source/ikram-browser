@@ -212,10 +212,23 @@ class Device:
     def downloads(self):
         # AOSP DocumentsUI, fixed English SYSTEM locale; Flutter remains Arabic.
         # Navigate explicitly rather than trusting the provider's recent folder.
-        self.tap("Show roots", timeout=10)
-        # The open drawer leaves its underlying toolbar/breadcrumb semantics
-        # visible too. Select the root row, not a background "Downloads" label.
-        self.tap("Downloads", resource="/title")
+        def drawer_open(root):
+            return any("Open from" in labels(node) and
+                       node.get("bounds") != "[0,0][0,0]"
+                       for node in root.iter("node"))
+
+        if not drawer_open(self.dump()):
+            self.tap("Show roots", timeout=10)
+        # The drawer leaves the underlying file grid in the accessibility tree.
+        # Its root can also become accessible before it accepts touch input.
+        # Selecting a root is idempotent: wait for the drawer to actually close
+        # before allowing any file click to target the previously covered grid.
+        for _ in range(5):
+            self.tap("Downloads", resource="/title")
+            time.sleep(.7)
+            if not drawer_open(self.dump()):
+                return
+        raise AssertionError("DocumentsUI root drawer did not close")
 
     def save_document(self, name):
         self.downloads()
