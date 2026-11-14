@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'browser_screen.dart';
 import 'browser_services.dart';
 import 'domain.dart';
+import 'profile_backup_dialogs.dart';
 import 'profile_editor.dart';
 import 'profile_store.dart';
 
@@ -45,9 +46,9 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
 
   void _message(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _persist(List<Profile> next) async {
@@ -61,7 +62,9 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
     try {
       await action();
     } catch (_) {
-      _message('تعذّر إكمال العملية. قد يكون المسح جزئياً إن كنت تمسح البيانات.');
+      _message(
+        'تعذّر إكمال العملية. قد يكون المسح جزئياً إن كنت تمسح البيانات.',
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -123,6 +126,35 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         _message('اكتمل مسح الكوكيز والكاش وتخزين الويب المشترك.');
       });
 
+  Future<void> _exportBackup() => _change(() async {
+        try {
+          final source = await _store.exportBackup();
+          if (!mounted) return;
+          await showProfileExport(context, source);
+        } catch (_) {
+          _message('تعذّر تصدير الإعدادات. لم تتغير البروفايلات المحفوظة.');
+        }
+      });
+
+  Future<void> _importBackup() => _change(() async {
+        final source = await showProfileImport(context, _profiles);
+        if (source == null) return;
+        try {
+          final profiles = await _store.importBackup(source);
+          if (!mounted) return;
+          setState(() => _profiles = profiles);
+          _message('تم استيراد إعدادات البروفايلات فقط، دون جلسات المواقع.');
+        } on FormatException {
+          _message(
+            'رُفضت النسخة: بيانات غير صالحة أو معرّفات مكررة. لم تتغير بياناتك.',
+          );
+        } catch (_) {
+          _message(
+            'تعذّر حفظ الاستيراد. لم يتم تأكيد نجاح النسخة؛ أعد تحميل القائمة.',
+          );
+        }
+      });
+
   Future<void> _open(Profile profile) async {
     if (_browserOpen || _busy) return;
     if (profile.proxyNeedsReview) {
@@ -141,10 +173,8 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
       await Navigator.push<void>(
         context,
         MaterialPageRoute(
-          builder: (_) => BrowserScreen(
-            profile: profile,
-            onSave: _replaceProfile,
-          ),
+          builder: (_) =>
+              BrowserScreen(profile: profile, onSave: _replaceProfile),
         ),
       );
     } finally {
@@ -159,6 +189,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
       appBar: AppBar(
         title: const Text('متصفح إكرام'),
         actions: [
+          IconButton(
+            tooltip: 'تصدير إعدادات البروفايلات',
+            onPressed: disabled ? null : _exportBackup,
+            icon: const Icon(Icons.upload_file),
+          ),
+          IconButton(
+            tooltip: 'استيراد إعدادات البروفايلات',
+            onPressed: disabled ? null : _importBackup,
+            icon: const Icon(Icons.download),
+          ),
           IconButton(
             tooltip: 'مسح بيانات التصفح لجميع البروفايلات',
             onPressed: disabled ? null : _clear,
@@ -177,7 +217,8 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                       children: [
                         const Text(
                           'تعذّر قراءة البروفايلات. لم يتم استبدال بياناتك '
-                          'بقائمة فارغة. أعد المحاولة أو استعد نسخة احتياطية.',
+                          'بقائمة فارغة. أعد المحاولة. الاستيراد معطل لحماية '
+                          'المحفوظ ولا يصلح البيانات التالفة تلقائياً.',
                         ),
                         TextButton(
                           onPressed: _load,
@@ -218,7 +259,8 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                                               ? 'شبكة النظام — بدون بروكسي من التطبيق'
                                               : 'بروكسي مطلوب: ${profile.proxy}',
                                     ),
-                                    onTap: disabled ? null : () => _open(profile),
+                                    onTap:
+                                        disabled ? null : () => _open(profile),
                                     trailing: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
@@ -234,7 +276,8 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
                                           onPressed: disabled
                                               ? null
                                               : () => _delete(profile),
-                                          icon: const Icon(Icons.delete_outline),
+                                          icon:
+                                              const Icon(Icons.delete_outline),
                                         ),
                                       ],
                                     ),
