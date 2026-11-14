@@ -159,12 +159,18 @@ class Device:
         # return success without invoking any Flutter editing action.
         self.shell("input", "keycombination", "113", "50")  # Ctrl+V, real clipboard
         time.sleep(.5)
+        # The first native IME startup can lag the paste. Wait briefly for its
+        # visible state, then hide it without sending Back to a bare dialog.
+        for _ in range(8):
+            if "mInputShown=true" in self.shell("dumpsys", "input_method"):
+                self.back()
+                break
+            time.sleep(.25)
+        # At 320dp the native IME can temporarily consume the dialog's whole
+        # content viewport. Inspect the actual field only after dismissing it.
         if expected is not None:
             node, _ = self.find(editable=True, index=field)
             assert node.get("text") == expected, "Native text field did not receive clipboard text"
-        # Hide the IME without dismissing the Flutter dialog.
-        if "mInputShown=true" in self.shell("dumpsys", "input_method"):
-            self.back()
 
     def capture(self, name):
         (self.evidence / f"{name}.png").write_bytes(self.adb("exec-out", "screencap", "-p", binary=True))

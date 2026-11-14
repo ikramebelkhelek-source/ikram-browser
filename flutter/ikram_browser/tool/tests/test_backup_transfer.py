@@ -125,6 +125,22 @@ class BackupTransferTests(unittest.TestCase):
         with patch.object(self.harness.time, "sleep"):
             self.assertEqual(device.find("ready")[1], (51, 52))
 
+    def test_paste_dismisses_keyboard_before_reading_narrow_field(self):
+        device = self.harness.Device(Path("."))
+        calls = []
+        device.tap = lambda *args, **kwargs: None
+        device.shell = lambda *args: "mInputShown=true" if args[0] == "dumpsys" else ""
+        device.back = lambda: calls.append("hide-keyboard")
+
+        def field(*args, **kwargs):
+            calls.append("read-field")
+            return ET.fromstring('<node text="malformed"/>'), (0, 0)
+
+        device.find = field
+        with patch.object(self.harness.time, "sleep"):
+            device.paste(expected="malformed")
+        self.assertEqual(calls, ["hide-keyboard", "read-field"])
+
     def test_harness_never_injects_preferences_or_session_fixtures(self):
         source = (TOOL / "verify_backup_transfer.py").read_text()
         self.assertNotIn('"pm", "clear"', source)
