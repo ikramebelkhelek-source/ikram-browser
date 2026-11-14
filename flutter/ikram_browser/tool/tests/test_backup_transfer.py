@@ -99,6 +99,8 @@ class BackupTransferTests(unittest.TestCase):
         destination = source.split("def destination(")[1].split("def main(")[0]
         self.assertEqual(destination.count("seed_session("), 1)
         self.assertIn('device.probe("verify", token', destination)
+        self.assertIn('"keycombination", "113", "50"', source)
+        self.assertNotIn('"keyevent", "279"', source)
 
     def test_ci_uses_two_wiped_avds_and_never_protected_signing(self):
         workflow = (TOOL.parents[2] / ".github/workflows/android-backup-transfer.yml").read_text()

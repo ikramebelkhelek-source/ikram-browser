@@ -134,7 +134,9 @@ class Device:
         self.tap(label, editable=label is None)
         if replace:
             self.shell("input", "keycombination", "113", "29")  # Ctrl+A
-        self.shell("input", "keyevent", "279")  # Android PASTE into Flutter's editor
+        # Flutter maps Ctrl+V to PasteTextIntent. Android's KEYCODE_PASTE can
+        # return success without invoking any Flutter editing action.
+        self.shell("input", "keycombination", "113", "50")  # Ctrl+V, real clipboard
         time.sleep(.5)
         # Hide the IME without dismissing the Flutter dialog.
         if "mInputShown=true" in self.shell("dumpsys", "input_method"):

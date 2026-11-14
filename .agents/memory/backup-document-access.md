@@ -16,3 +16,14 @@ backup after a provider failure.
 from errors, successful stream closure before success, strict UTF-8, bounded
 reads before decoding, and no implicit retained copies or URI permissions.
 Keep real-device/provider checks distinct from simulated Android-runtime tests.
+
+Native Flutter clipboard checks must verify the pasted content, not just a
+successful Android input command.
+
+**Why:** On Android 35, `KEYCODE_PASTE` returned success but did not invoke
+Flutter's paste action; the profile field remained unchanged. Flutter's
+Ctrl+V shortcut invokes the real clipboard editing action instead.
+
+**How to apply:** Use an actual supported editing shortcut or the touch selection
+toolbar, and compare the resulting configuration/document. Treat UI-driver
+preflight failures separately from failed backup or session-preservation checks.
