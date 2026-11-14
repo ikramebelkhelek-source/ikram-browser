@@ -463,9 +463,12 @@ run at **320 dp width with the app's real Arabic RTL layout and native IME**.
 
 Each phone first creates different synthetic Secure/HttpOnly cookies and
 localStorage in the real WebView using the existing controlled HTTPS fixture.
-After closing the browser and letting storage flush, the backup operations must
-leave every file in its WebView directory unchanged. Final read-only WebView
-probes must retain each phone's **own** original session, not the other phone's.
+After closing the browser and letting storage flush, the harness records full
+WebView directory hashes and file deltas for diagnosis. Chromium's background
+housekeeping and SQLite checkpoints may rewrite files without changing stored
+session values, so byte-for-byte directory equality is not the session oracle.
+Final read-only WebView probes must retain each phone's **own** original cookies
+and localStorage values, not the other phone's, without reseeding.
 These checks concern backup configuration boundaries, not provider updates or
 website-specific login policies.
 

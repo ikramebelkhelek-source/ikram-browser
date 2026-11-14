@@ -7,6 +7,8 @@ from pathlib import Path
 import tarfile
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
+from unittest.mock import patch
 
 TOOL = Path(__file__).resolve().parents[1]
 
@@ -88,6 +90,36 @@ class BackupTransferTests(unittest.TestCase):
             self.assertIn('com.ikram.backupeditor',
                           (android / "backup_editor/build.gradle.kts").read_text())
             self.assertFalse((android / "app").exists())
+
+    def test_native_fields_need_not_expose_flutter_hints(self):
+        device = self.harness.Device(Path("."))
+        tree = ET.fromstring(
+            '<hierarchy><node class="android.widget.EditText" text="اسم" '
+            'bounds="[10,20][300,80]"/><node class="android.widget.EditText" '
+            'text="" content-desc="" bounds="[10,90][300,150]"/>'
+            '<node class="android.widget.Button" content-desc="تأكيد الاستيراد" '
+            'enabled="false" bounds="[10,160][300,220]"/></hierarchy>')
+        device.dump = lambda: tree
+        self.assertEqual(device.find(editable=True)[1], (155, 50))
+        self.assertEqual(device.find(editable=True, index=1)[1], (155, 120))
+        self.assertEqual(device.find("تأكيد الاستيراد")[0].get("enabled"), "false")
+
+    def test_transient_empty_accessibility_tree_is_retried(self):
+        device = self.harness.Device(Path("."))
+        attempts = iter([
+            self.harness.subprocess.CalledProcessError(1, ["adb", "shell", "cat"]),
+            ET.fromstring('<hierarchy><node text="ready" bounds="[1,2][101,102]"/></hierarchy>'),
+        ])
+
+        def dump():
+            item = next(attempts)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        device.dump = dump
+        with patch.object(self.harness.time, "sleep"):
+            self.assertEqual(device.find("ready")[1], (51, 52))
 
     def test_harness_never_injects_preferences_or_session_fixtures(self):
         source = (TOOL / "verify_backup_transfer.py").read_text()

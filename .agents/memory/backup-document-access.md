@@ -27,3 +27,15 @@ Ctrl+V shortcut invokes the real clipboard editing action instead.
 **How to apply:** Use an actual supported editing shortcut or the touch selection
 toolbar, and compare the resulting configuration/document. Treat UI-driver
 preflight failures separately from failed backup or session-preservation checks.
+
+Do not use whole-directory WebView byte equality as the sole session-preservation
+oracle while the app or Chromium can run.
+
+**Why:** Native backup checks observed directory changes after closing a WebView
+route and restarting on the profiles screen, before any import. Chromium has
+background housekeeping and SQLite checkpoint behavior unrelated to backup data.
+
+**How to apply:** Retain file deltas diagnostically, but verify the original
+synthetic cookie/localStorage values through a read-only WebView probe without
+reseeding. Byte equality remains appropriate across an offline APK replacement
+when no app process runs between snapshots.
