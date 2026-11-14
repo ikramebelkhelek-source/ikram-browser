@@ -1,3 +1,4 @@
 - [GitHub access fallback](github-access.md) — unavailable connector credentials do not prove standard Git or authenticated GitHub CLI is unavailable.
 - [Android signing identity](android-signing-identity.md) — investigate verifier/report-format changes before assuming a key mismatch; never regenerate the update key to fix a check.
 - [Historical Android baseline](android-historical-baseline.md) — keep original signed APK bytes; never rebuild or re-sign an earlier release to make migration testing easier.
+- [Backup document access](backup-document-access.md) — avoid hidden unencrypted cached copies and false save success; distinguish provider runtime tests from device checks.

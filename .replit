@@ -41,7 +41,7 @@ timeoutMs = 20000
 
 [nix]
 channel = "stable-25_05"
-packages = ["jdk17_headless", "apksigner"]
+packages = ["jdk17_headless", "apksigner", "flutter", "gradle"]
 
 [[ports]]
 localPort = 8080

@@ -36,6 +36,17 @@ jobs:
           node --test tool/tests/*.test.mjs
           for script in tool/*.sh; do bash -n "$script" || exit; done
         working-directory: flutter/ikram_browser
+      - name: Check Android backup document access (API 24 and 35 runtimes)
+        run: ./gradlew :profile_backup_documents:testDebugUnitTest
+        working-directory: flutter/ikram_browser/android
+      - name: Retain native backup check results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backup-document-checks
+          path: flutter/ikram_browser/build/profile_backup_documents/reports/tests/
+          if-no-files-found: ignore
+          retention-days: 1
 
   build:
     name: Signed APK ${{ matrix.sequence }}

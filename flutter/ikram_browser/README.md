@@ -50,8 +50,10 @@ it cannot be created by assigning IDs to these `InAppWebView` widgets.
 Requires Flutter **3.24 or newer**, Dart **3.5 or newer**, and native Android/iOS.
 `flutter_inappwebview` is pinned to the verified stable API version **6.1.5**.
 
-For an existing app, copy this folder's `lib/`, merge the dependencies from
-`pubspec.yaml`, and keep your existing native project files/signing configuration.
+For an existing app, copy this folder's `lib/` and `packages/`, merge the
+dependencies from `pubspec.yaml`, and keep your existing native project
+files/signing configuration. The local `profile_backup_documents` package
+registers the Android system document picker automatically; do not omit it.
 
 For a new native shell, run from this folder with Flutter installed:
 
@@ -160,20 +162,28 @@ signing restrictions or migrate website sessions.
    icon). The JSON includes only profile IDs, names, unauthenticated proxy
    settings, and any proxy-review flag. Cookies, website storage, cache,
    passwords, logins and open tabs are **not included**.
-2. Tap **نسخ JSON**, then save the **entire text**, unchanged, in a UTF-8 text
-   file such as `ikram-profiles.json` using a trusted editor outside the app.
-   Transfer a copy to your new phone or another trusted device. The clipboard
-   is temporary, not a durable backup; copying alone is not proof of a saved file.
+2. On Android, tap **حفظ ملف**, choose a trusted location in the system document
+   picker, and save `ikram-profiles.json`. The app writes complete UTF-8 bytes,
+   including Arabic names, and reports success only after the stream is closed.
+   Cancellation is not success. A failed write may leave a partial file at the
+   chosen destination: do not rely on it; retry and verify the saved file.
+   Transfer a copy to your new phone or another trusted device.
    The JSON is **unencrypted** and can expose profile names and proxy addresses.
-   Use trusted storage, avoid public sharing, and clear the clipboard afterward.
-3. Before removing anything, reopen the saved file, copy its contents, and use
-   **استيراد إعدادات البروفايلات** → **معاينة الاستيراد** to check that the saved
-   text is valid and contains the expected count and names. On the original
+   Use trusted storage and avoid public sharing.
+   **نسخ JSON** remains available as an alternative (and on platforms without
+   the Android picker): save the **entire text**, unchanged, using a trusted
+   UTF-8 editor outside the app, then clear the clipboard. Copying alone is not
+   proof of a durable saved file.
+3. Before removing anything, use **استيراد إعدادات البروفايلات** → **فتح ملف**
+   to reopen the saved document. Opening automatically previews it, without
+   importing. Check the expected count and names. Alternatively paste the
+   complete file contents and tap **معاينة الاستيراد**. On the original
    installation, a valid preview will also warn about already-saved IDs and
    disable import. This is expected; cancel the dialog. Verification of JSON
    does not verify any website session.
-4. On the destination installation, open **استيراد إعدادات البروفايلات**, paste
-   the complete JSON, preview it, then tap **تأكيد الاستيراد**. Cancel or dismiss
+4. On the destination installation, open **استيراد إعدادات البروفايلات**, use
+   **فتح ملف** (or paste the complete JSON), preview it, then tap
+   **تأكيد الاستيراد**. Cancel or dismiss
    before confirmation to make no changes. After success, close and reopen the
    app to check the configurations. You must sign in to websites again yourself.
 5. Import adds to existing configurations; it **never overwrites an existing
@@ -193,6 +203,44 @@ before any write. Empty backups are valid but add nothing. Legacy stored proxy
 credentials are excluded from export and the review requirement is retained.
 If existing saved data cannot be read, import/export are blocked rather than
 replacing it; this feature is not a damaged-storage repair tool.
+
+#### Android file-access safety and checks
+
+The local Android plugin uses `ACTION_CREATE_DOCUMENT` and
+`ACTION_OPEN_DOCUMENT` with `CATEGORY_OPENABLE`. It does not request broad
+storage permissions, retain URI permissions, or copy selected documents into an
+app cache. It accepts providers with generic MIME labels, then relies on the
+existing strict backup schema rather than trusting the extension or MIME type.
+Native reads stop at 3 MiB (the maximum UTF-8 bytes for the schema's UTF-16
+character limit). Dart also enforces the existing 1,048,576-character limit and
+rejects malformed UTF-8 instead of replacing characters. A UTF-8 BOM is accepted.
+Provider errors and incomplete writes are shown without exposing provider paths
+or file contents. A cancelled/failed open preserves the text already entered
+but invalidates its old preview; preview again before confirming.
+
+`flutter test` covers full-schema Arabic save/open round trips, cancellation,
+storage errors and retry, invalid UTF-8 and size limits, preview without writes,
+explicit confirmation, duplicate rejection, and dialog cancellation.
+The Android CI check additionally runs:
+
+```sh
+cd android
+./gradlew :profile_backup_documents:testDebugUnitTest
+```
+
+These native Robolectric checks exercise Android API **24 and 35** intents and
+`ContentResolver` IO against a synthetic document provider. They cover cancelled
+save/open without provider writes, unavailable and unwritable storage, exact
+Arabic bytes and truncation when overwriting an explicitly selected file,
+bounded reads, missing document URIs, overlapping operations, and activity
+recreation/detachment. They are Android-runtime unit checks, not proof of a
+particular phone's DocumentsUI or cloud provider behavior.
+
+Before relying on a real device/provider, save and reopen a synthetic Arabic
+configuration, verify its full names/count, cancel both system pickers, and
+check a disconnected/read-only storage provider. Confirm no saved profiles
+change until import confirmation. The existing separate phone-transfer checks
+remain necessary; these configuration files do not restore website sessions.
 
 ### Administrator: protect the signing identity
 

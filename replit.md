@@ -9,8 +9,12 @@ code, not convert it into a web or Expo app.
 - `dart flutter/ikram_browser/tool/check_domain.dart` — dependency-free domain checks
 - `dart analyze flutter/ikram_browser/lib/domain.dart flutter/ikram_browser/tool/check_domain.dart` — analyze the pure Dart logic
 - Full Flutter commands and native platform requirements are in `flutter/ikram_browser/README.md`.
-- Flutter is not installed here. The Dart SDK can validate pure logic and parse
-  source, but cannot verify the Flutter widgets or native WebView integration.
+- Flutter is available through the Nix `flutter` package (currently 3.32.0).
+  Run `flutter pub get`, `flutter analyze --no-fatal-infos --no-fatal-warnings`,
+  and `flutter test` from `flutter/ikram_browser` for widget/store checks.
+  CI uses the separately pinned Flutter 3.35.7 and generates the Android shell.
+  No Android SDK/emulator is configured in this workspace; native unit checks
+  run in CI and do not replace device WebView/document-provider verification.
 - No new runnable preview was created for this source-only repair.
 - The pnpm packages below are the supplied template, not the Flutter app.
 

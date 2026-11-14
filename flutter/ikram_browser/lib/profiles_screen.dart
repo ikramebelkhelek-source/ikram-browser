@@ -4,6 +4,7 @@ import 'browser_screen.dart';
 import 'browser_services.dart';
 import 'domain.dart';
 import 'profile_backup_dialogs.dart';
+import 'profile_backup_files.dart';
 import 'profile_editor.dart';
 import 'profile_store.dart';
 
@@ -16,6 +17,7 @@ class ProfilesScreen extends StatefulWidget {
 
 class _ProfilesScreenState extends State<ProfilesScreen> {
   final _store = ProfileStore();
+  final _backupFiles = const ProfileBackupFiles();
   List<Profile> _profiles = [];
   bool _loading = true;
   bool _busy = false;
@@ -130,15 +132,16 @@ class _ProfilesScreenState extends State<ProfilesScreen> {
         try {
           final source = await _store.exportBackup();
           if (!mounted) return;
-          await showProfileExport(context, source);
+          await showProfileExport(context, source, files: _backupFiles);
         } catch (_) {
           _message('تعذّر تصدير الإعدادات. لم تتغير البروفايلات المحفوظة.');
         }
       });
 
   Future<void> _importBackup() => _change(() async {
-        final source = await showProfileImport(context, _profiles);
-        if (source == null) return;
+        final source =
+            await showProfileImport(context, _profiles, files: _backupFiles);
+        if (source == null || !mounted) return;
         try {
           final profiles = await _store.importBackup(source);
           if (!mounted) return;

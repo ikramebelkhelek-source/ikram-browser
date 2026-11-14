@@ -1,0 +1,46 @@
+group = 'com.ikram.profile_backup_documents'
+version = '1.0'
+
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.6.1'
+    }
+}
+
+apply plugin: 'com.android.library'
+
+android {
+    namespace = 'com.ikram.profile_backup_documents'
+    compileSdk = 35
+    defaultConfig {
+        minSdk = 24
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    testOptions {
+        unitTests.includeAndroidResources = true
+        // Robolectric's API 35 descriptor-close interceptor needs this under
+        // JDK 17+; without it successful writes look like close failures.
+        unitTests.all {
+            jvmArgs '--add-opens=java.base/java.io=ALL-UNNAMED'
+            systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'
+        }
+    }
+}
+
+repositories {
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.robolectric:robolectric:4.14.1'
+    testImplementation 'org.mockito:mockito-core:5.15.2'
+}
