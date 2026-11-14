@@ -275,7 +275,9 @@ def source(device, exchange):
     before = device.profiles()
     device.tap(EXPORT)
     device.tap("حفظ ملف")
+    device.find("Show roots")  # Do not inject Back into a still-starting picker.
     device.back()  # Real ACTION_CREATE_DOCUMENT cancellation.
+    device.find("أُلغي حفظ الملف. لم تُحفظ نسخة جديدة.")
     device.capture("save-cancelled")
     device.unchanged(before, webview)
     device.tap("نسخ JSON")
@@ -320,7 +322,9 @@ def destination(device, exchange):
     device.cold_start()
     device.tap(IMPORT)
     device.tap("فتح ملف")
+    device.find("Show roots")
     device.back()
+    device.find(CONFIRM)
     device.unchanged(before, webview)
     device.capture("open-cancelled-rtl")
     device.tap("إلغاء")
@@ -421,7 +425,7 @@ def main():
         result["error"] = str(error)
         try:
             device.capture("failure")
-            (evidence / "logcat.txt").write_text(device.adb("logcat", "-d", "-t", "500"))
+            (evidence / "logcat.txt").write_text(device.adb("logcat", "-d", "-b", "all"))
         except Exception:
             pass
         raise
